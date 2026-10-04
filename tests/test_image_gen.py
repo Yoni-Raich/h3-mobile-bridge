@@ -11,7 +11,7 @@ from PIL import Image
 import backend.db as db_module
 from backend.library import init_library_db
 from backend.production_db import init_production_db
-from backend.main import app, worker
+from backend.main import app, public_health, worker
 from backend.workflows import qwen_image_workflow
 
 
@@ -78,6 +78,11 @@ class ImageGenApiTests(unittest.TestCase):
         init_production_db()
         self.notify_patch = patch.object(worker, "notify")
         self.notify_patch.start()
+        # Queue/API tests do not require multi-GB model downloads.
+        self.health_patch = patch("backend.main.public_health", side_effect=lambda: {
+            **public_health(), "qwen_image_ready": True,
+        })
+        self.health_patch.start()
         self.client = TestClient(app)
         session = self.client.get("/api/session")
         self.token = session.json()["csrf_token"]
@@ -85,6 +90,7 @@ class ImageGenApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.notify_patch.stop()
+        self.health_patch.stop()
         db_module.DB_PATH = self.original_path
         self.temp.cleanup()
 

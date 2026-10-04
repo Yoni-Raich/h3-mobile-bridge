@@ -43,6 +43,12 @@ class ProductionStudioTests(unittest.TestCase):
             patch.object(production_module, "PRODUCTIONS", self.root / "productions"),
             patch.object(production_module, "INPUT", self.root / "input"),
             patch.object(production_orchestrator, "notify"),
+            # Unit tests must not depend on the user's CLI login or today's
+            # remote model list. Discovery itself has a separate test below.
+            patch("backend.main.model_catalog", return_value={
+                "codex": [{"id": "gpt-5.6-sol", "efforts": ["high"]}],
+                "agy": [{"id": "gemini-3.1-pro-high", "efforts": ["high"]}],
+            }),
         ]
         for item in self.production_patches:
             item.start()
