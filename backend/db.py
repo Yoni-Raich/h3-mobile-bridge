@@ -26,14 +26,23 @@ def connect():
         db.close()
 
 
+def _execute_statements(db, script: str):
+    for statement in script.split(";"):
+        if statement.strip():
+            db.execute(statement)
+
+
 def _create_jobs_table(db):
-    db.executescript("""
+    # Statement by statement: executescript() would commit an open rebuild.
+    _execute_statements(db, """
     CREATE TABLE jobs (
         id TEXT PRIMARY KEY,
         prompt TEXT NOT NULL,
         mode TEXT NOT NULL CHECK(mode IN ('text','opening','closing','frames','reference','lip_sync')),
         duration REAL NOT NULL CHECK(duration BETWEEN 0.5 AND 60),
-        engine TEXT NOT NULL CHECK(engine IN ('turbo','standard','spectrum')),
+        -- 'fused' and 'post' are kept so history from experimental builds survives a
+        -- rebuild. No workflow builder accepts them for new jobs.
+        engine TEXT NOT NULL CHECK(engine IN ('turbo','standard','spectrum','fused','post')),
         turbo_profile TEXT NOT NULL CHECK(turbo_profile IN ('v1','v4','official')),
         encoder TEXT NOT NULL CHECK(encoder IN ('native','clipproj')),
         steps INTEGER NOT NULL,
@@ -73,7 +82,8 @@ def _create_jobs_table(db):
         started_at TEXT,
         finished_at TEXT,
         CHECK((engine='turbo' AND steps BETWEEN 4 AND 12) OR
-              (engine IN ('standard','spectrum') AND steps BETWEEN 8 AND 30)),
+              (engine IN ('standard','spectrum') AND steps BETWEEN 8 AND 30) OR
+              (engine IN ('fused','post') AND steps BETWEEN 4 AND 30)),
         CHECK(width BETWEEN 256 AND 2048 AND height BETWEEN 256 AND 2048 AND
               width % 32 = 0 AND height % 32 = 0 AND width * height <= 2000000),
         CHECK(mode <> 'reference' OR engine IN ('turbo','standard','spectrum')),
@@ -169,6 +179,23 @@ def _table_columns(db):
 
 
 def _rebuild_jobs_table(db):
+    # SQLite DDL is not transactional by default in this driver. Run the whole
+    # rebuild in one explicit transaction so a failed copy cannot leave an
+    # empty jobs table beside the renamed source.
+    started = not db.in_transaction
+    if started:
+        db.execute("BEGIN IMMEDIATE")
+    try:
+        _rebuild_jobs_table_steps(db)
+    except Exception:
+        if started:
+            db.execute("ROLLBACK")
+        raise
+    if started:
+        db.execute("COMMIT")
+
+
+def _rebuild_jobs_table_steps(db):
     # A previous interrupted rebuild can leave the old source table beside a
     # newly created jobs table. Preserve that source as a numbered archive so
     # the current table can be rebuilt safely without losing user history.

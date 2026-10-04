@@ -98,6 +98,43 @@ class DatabaseMigrationTests(unittest.TestCase):
             ["reference-old", "turbo-old"],
         )
 
+    def test_failed_rebuild_rolls_back_and_keeps_the_source_table(self):
+        connection = sqlite3.connect(self.path)
+        try:
+            # A NULL status violates the rebuilt table and aborts the copy.
+            connection.executescript("""
+                CREATE TABLE jobs_broken AS SELECT * FROM jobs;
+                DROP TABLE jobs;
+                ALTER TABLE jobs_broken RENAME TO jobs;
+                UPDATE jobs SET status=NULL WHERE id='turbo-old';
+            """)
+            connection.commit()
+        finally:
+            connection.close()
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            db_module.init_db()
+
+        connection = sqlite3.connect(self.path)
+        try:
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertNotIn("jobs_legacy", tables)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 2)
+        finally:
+            connection.close()
+
+    def test_rebuild_keeps_history_from_experimental_engines(self):
+        db_module.init_db()
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute("UPDATE jobs SET engine='turbo',turbo_profile='official' WHERE id='turbo-old'")
+            connection.execute("UPDATE jobs SET engine='fused',mode='text',steps=4 WHERE id='reference-old'")
+            connection.commit()
+            rows = dict(connection.execute("SELECT id,engine FROM jobs"))
+        finally:
+            connection.close()
+        self.assertEqual(rows, {"turbo-old": "turbo", "reference-old": "fused"})
+
 
 if __name__ == "__main__":
     unittest.main()
