@@ -1,0 +1,247 @@
+/* Mobile-first Studio shell. Loaded after styles.css; every rule is scoped to
+   .app-shell so the Production and Image Gen pages keep their own layout. */
+:root {
+  --bg: #0a0c0b;
+  --surface: #131715;
+  --surface-2: #1a1f1c;
+  --surface-3: #222923;
+  --line: #2a322d;
+  --line-strong: #3d4a42;
+  --text: #f2f1eb;
+  --muted: #a3ada6;
+  --faint: #76817a;
+  --accent: #b5d9bc;
+  --accent-strong: #cdebd2;
+  --accent-ink: #0f1711;
+  --gold: #e3c487;
+  --danger: #f0a195;
+  --nav-height: 64px;
+  --radius: 16px;
+  font-size: 16px;
+}
+body { background: radial-gradient(120% 60% at 80% -10%, #1d2a23 0, transparent 60%), var(--bg); -webkit-text-size-adjust: 100%; }
+
+.app-shell { padding: env(safe-area-inset-top) 14px calc(var(--nav-height) + 28px + env(safe-area-inset-bottom)); color: var(--text); }
+.app-shell button, .app-shell select, .app-shell input, .app-shell textarea { font-family: inherit; }
+.app-shell button { touch-action: manipulation; }
+
+/* Top bar */
+.app-shell .topbar { position: sticky; top: 0; z-index: 40; height: 60px; margin: 0 -14px 12px; padding: 0 14px; gap: 10px; background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid #ffffff0a; }
+.app-shell .brand-mark { width: 38px; height: 38px; border-radius: 12px; flex: 0 0 auto; }
+.app-shell .topbar-title { min-width: 0; }
+.app-shell .topbar h1 { font-size: 18px; font-weight: 700; line-height: 1.2; }
+.app-shell .topbar p { margin: 1px 0 0; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-shell .topbar-live { display: flex; align-items: center; gap: 6px; color: var(--accent) !important; }
+.app-shell .topbar-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.app-shell .comfy-status-button { height: 36px; padding: 0 12px; gap: 7px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.app-shell .comfy-status-button span { display: inline; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* Bottom navigation */
+.app-shell .page-tabs { position: fixed; z-index: 60; inset: auto 0 0 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 0; padding: 6px max(8px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right)); border: 0; border-top: 1px solid var(--line); border-radius: 0; background: color-mix(in srgb, #0e110f 92%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.app-shell .page-tabs button { position: relative; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 4px 2px; border: 0; border-radius: 12px; background: transparent; color: var(--faint); font-size: 11px; font-weight: 600; }
+.app-shell .page-tabs button.active { color: var(--accent-strong); background: #b5d9bc14; }
+.app-shell .page-tabs button b { position: absolute; top: 3px; inset-inline-start: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; }
+
+/* Studio view switch */
+.view-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 14px; padding: 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.view-switch button { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-size: 14px; font-weight: 600; }
+.view-switch button.active { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.view-switch b { min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 12px; }
+.view-switch b.muted { background: var(--surface-3); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line-strong); }
+
+/* Composer */
+.app-shell .composer { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; display: grid; gap: 12px; }
+.app-shell .mode-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.app-shell .mode-card { min-height: 64px; padding: 10px 12px; border-radius: 14px; border-color: var(--line); background: var(--surface); }
+.app-shell .mode-card.selected { border-color: var(--accent); background: #b5d9bc12; }
+.app-shell .mode-card strong { font-size: 15px; }
+.app-shell .mode-card small { font-size: 12px; color: var(--faint); line-height: 1.35; }
+.app-shell textarea { min-height: 148px; padding: 14px; border-radius: var(--radius); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-size: 16px; line-height: 1.6; }
+.app-shell textarea:focus { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.app-shell .composer-meta { min-height: 32px; margin-top: -6px; font-size: 13px; color: var(--faint); }
+.app-shell .batch-toggle input { width: 18px; height: 18px; }
+.app-shell .batch-note, .app-shell .quiet-warning { margin: 0; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+.app-shell .sequence-choice { margin: 0; }
+.app-shell .sequence-choice button { min-height: 60px; }
+.app-shell .sequence-choice strong { font-size: 14px; }
+.app-shell .sequence-choice small { font-size: 12px; }
+.app-shell .connected-note, .app-shell .reference-audio-note, .app-shell .reference-limits-note { margin: 0; font-size: 12.5px; line-height: 1.55; }
+.app-shell .frame-grid, .app-shell .reference-grid, .app-shell .lip-sync-inputs { margin-top: 0; }
+.app-shell .dropzone { height: 120px; border-radius: var(--radius); background: var(--surface); }
+.app-shell .dropzone strong { font-size: 14px; }
+.app-shell .dropzone span { font-size: 12px; text-align: center; padding: 0 12px; }
+.app-shell .dropzone.has-image button, .app-shell .dropzone.has-audio button { width: 40px; height: 40px; }
+.app-shell .record-button { min-height: 46px; font-size: 14px; }
+.app-shell .record-button small, .app-shell .audio-trim-heading small, .app-shell .audio-trim-note { font-size: 12px; }
+.app-shell .audio-trim-heading span { font-size: 14px; }
+.app-shell .audio-trim-range { height: 30px; }
+.app-shell .lip-sync-audio-player { height: 42px; }
+
+/* Quick settings */
+.quick-settings { display: grid; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.quick-row { display: grid; gap: 8px; min-width: 0; }
+.quick-label { color: var(--muted); font-size: 13px; font-weight: 600; }
+.preset-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.preset-chips button { min-width: 0; min-height: 76px; display: grid; justify-items: center; align-content: center; gap: 3px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--muted); }
+.preset-chips button strong { color: var(--text); font-size: 14px; }
+.preset-chips button small { color: var(--faint); font-size: 11px; white-space: nowrap; }
+.preset-chips button[aria-pressed="true"] { border-color: var(--accent); background: #b5d9bc16; color: var(--accent-strong); }
+.preset-chips button[aria-pressed="true"] small { color: var(--accent); }
+.preset-chips button:disabled { opacity: .4; }
+.chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chip-row > button, .app-shell .aspect-grid button { min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: 14px; font-weight: 600; }
+.chip-row > button.active, .app-shell .aspect-grid button.active { border-color: var(--accent); background: #b5d9bc16; color: var(--accent-strong); }
+.chip-row > button:disabled { opacity: .35; }
+.app-shell .chip-row .duration-input { flex: 1 1 86px; min-width: 86px; padding: 0; border: 0; background: none; }
+.app-shell .chip-row .duration-input span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.app-shell .chip-row .duration-input input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); font-size: 16px; text-align: center; }
+.app-shell .aspect-grid { grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 0; }
+.app-shell .aspect-grid button { padding: 0; }
+
+/* Advanced settings */
+.app-shell .generation-panel { margin: 0; padding: 0; border-color: var(--line); border-radius: var(--radius); background: var(--surface); }
+.app-shell .generation-panel::before { display: none; }
+.app-shell .generation-panel > summary { min-height: 56px; margin: 0; padding: 0 14px; list-style: none; cursor: pointer; }
+.app-shell .generation-panel > summary::-webkit-details-marker { display: none; }
+.app-shell .generation-heading > div { font-size: 15px; color: var(--text); }
+.app-shell .load-badge { margin-inline-start: auto; min-height: 28px; padding: 0 10px; font-size: 12px; }
+.app-shell .panel-chevron { flex: 0 0 auto; color: var(--faint); transition: transform .18s; }
+.app-shell .generation-panel[open] .panel-chevron { transform: rotate(180deg); }
+.app-shell .settings-grid { padding: 0 12px 12px; gap: 10px; }
+.app-shell .setting-block { padding: 12px; border-color: var(--line); border-radius: 13px; background: var(--bg); }
+.app-shell .setting-title { margin-bottom: 10px; }
+.app-shell .setting-title span { font-size: 14px; }
+.app-shell .setting-title small { font-size: 12px; color: var(--faint); }
+.app-shell .engine-toggle { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.app-shell .engine-toggle.lip-engine-toggle { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.app-shell .engine-toggle button, .app-shell .encoder-toggle button { min-height: 58px; padding: 6px; flex-direction: column; gap: 3px; }
+.app-shell .engine-toggle button > span, .app-shell .encoder-toggle button > span { text-align: center; }
+.app-shell .engine-toggle strong, .app-shell .encoder-toggle strong { font-size: 14px; }
+.app-shell .engine-toggle small, .app-shell .encoder-toggle small { font-size: 11.5px; }
+.app-shell .turbo-profile-toggle { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.app-shell .turbo-profile-toggle button { min-height: 60px; padding: 6px 4px; }
+.app-shell .turbo-profile-toggle strong { display: block; font-size: 13px; }
+.app-shell .turbo-profile-toggle small { display: block; margin-top: 2px; font-size: 11px; line-height: 1.3; }
+.app-shell .setting-note { margin-top: 10px; font-size: 12.5px; line-height: 1.55; color: var(--gold); }
+.app-shell .stepper { grid-template-columns: 48px 1fr 48px; }
+.app-shell .stepper button, .app-shell .stepper > div { height: 48px; }
+.app-shell .stepper button { width: 48px; }
+.app-shell .stepper strong { font-size: 24px; }
+.app-shell .stepper span { font-size: 12px; }
+.app-shell .steps-range { height: 32px; margin: 8px 0 0; }
+.app-shell .range-labels { font-size: 12px; color: var(--faint); }
+.app-shell .audio-output-toggle { min-height: 52px; }
+.app-shell .audio-output-toggle input { width: 20px; height: 20px; }
+.app-shell .audio-output-toggle span { font-size: 14px; }
+.app-shell .audio-output-toggle small { font-size: 12px; }
+.app-shell .numeric-control { margin-top: 0; font-size: 13px; }
+.app-shell .numeric-control input { min-height: 46px; font-size: 16px; }
+.app-shell .numeric-control small { font-size: 12px; color: var(--faint); }
+.app-shell .calculated-resolution { margin-top: 8px; font-size: 13px; color: var(--muted); direction: ltr; text-align: end; }
+.app-shell .destination-block .generation-destination { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 0; padding: 0; border: 0; background: none; }
+.app-shell .generation-destination label span { font-size: 12px; color: var(--faint); }
+.app-shell .generation-destination select, .app-shell .asset-library-toolbar select, .app-shell .asset-dialog select, .app-shell .asset-dialog input { min-height: 46px; font-size: 15px; }
+.app-shell .generation-destination button { min-height: 44px; font-size: 13px; }
+
+/* Sticky create bar */
+.action-bar { position: sticky; z-index: 30; bottom: calc(var(--nav-height) + 8px + env(safe-area-inset-bottom)); display: grid; gap: 8px; margin: 2px -4px 0; padding: 10px; border: 1px solid var(--line-strong); border-radius: 18px; background: color-mix(in srgb, #141a16 94%, transparent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 12px 40px #000a; }
+.app-shell .action-bar .profile-summary { flex-wrap: wrap; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.app-shell .create-button { width: 100%; height: 54px; border-radius: 14px; font-size: 16px; font-weight: 700; background: var(--accent); color: var(--accent-ink); }
+.app-shell .create-button:active { transform: scale(.985); }
+.app-shell .create-button:disabled { opacity: .55; }
+.app-shell .error-banner { margin: 0; padding: 12px; font-size: 14px; line-height: 1.5; }
+
+/* Queue, results and cards */
+.app-shell .queue-section, .app-shell .results-section { padding-top: 0; }
+.app-shell .section-heading { margin: 4px 2px 12px; }
+.app-shell .section-heading span { font-size: 12.5px; }
+.app-shell .section-heading h2 { font-size: 20px; }
+.app-shell .recent-heading { margin-top: 26px; }
+.link-button { min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--accent); font-size: 13px; }
+.app-shell .empty { min-height: 180px; gap: 10px; padding: 20px; font-size: 14px; }
+.empty-action { min-height: 44px; padding: 0 18px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 700; }
+.app-shell .job-card { margin-bottom: 12px; border-color: var(--line); border-radius: 18px; background: var(--surface); }
+.app-shell .job-body { padding: 14px; }
+.app-shell .job-head { font-size: 13px; }
+.app-shell .job-head .status { font-size: 13px; font-weight: 600; }
+.app-shell .prompt-card p { font-size: 14.5px; line-height: 1.6; }
+.app-shell .prompt-actions button { min-height: 36px; font-size: 12.5px; }
+.app-shell .job-config { gap: 6px; }
+.app-shell .job-config span { padding: 4px 9px; font-size: 12px; }
+.app-shell .progress { height: 6px; }
+.app-shell .progress-meta { font-size: 12.5px; }
+.app-shell .job-actions { gap: 8px; }
+.app-shell .job-actions button, .app-shell .job-actions a { height: 42px; padding: 0 13px; border-radius: 11px; font-size: 13.5px; }
+.app-shell .job-actions .trash { width: 42px; padding: 0; }
+.app-shell .job-actions .elapsed { font-size: 12px; }
+.app-shell .asset-location { font-size: 12px; }
+.app-shell .sequence-title p { font-size: 15px; }
+.app-shell .generation-error { font-size: 13px; }
+.app-shell .generation-error summary, .app-shell .generation-error pre { font-size: 12px; }
+.app-shell .asset-library-panel { margin-bottom: 16px; padding: 14px; border-radius: var(--radius); border-color: var(--line); background: var(--surface); box-shadow: none; }
+.app-shell .asset-library-head .eyebrow { margin: 0 0 2px; font-size: 15px; color: var(--text); }
+.app-shell .asset-library-head small { font-size: 11.5px; color: var(--faint); overflow-wrap: anywhere; }
+.app-shell .asset-library-head > button, .app-shell .asset-project-actions button { min-height: 40px; font-size: 13px; }
+.app-shell .asset-library-toolbar label span { font-size: 12px; }
+.app-shell .asset-folder-actions button { width: 40px; height: 40px; }
+.app-shell .asset-container-toggle { min-height: 50px; font-size: 14px; }
+.app-shell .asset-container-toggle span { font-size: 12px; }
+.show-more { width: 100%; min-height: 46px; border: 1px dashed var(--line-strong); border-radius: 12px; background: transparent; color: var(--accent); font-size: 14px; font-weight: 600; }
+.app-shell .selection-hint { font-size: 12px; }
+.app-shell .join-dock { bottom: calc(var(--nav-height) + 10px + env(safe-area-inset-bottom)); }
+.app-shell .join-dock strong { font-size: 14px; }
+.app-shell .join-dock small, .app-shell .join-chip span { font-size: 12.5px; }
+.app-shell .join-chip { grid-template-columns: 26px minmax(0, 1fr) 38px 38px 38px; min-height: 42px; }
+.app-shell .join-chip button { height: 38px; }
+.app-shell .join-button { height: 48px; font-size: 15px; }
+.app-shell .dialog-backdrop { padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
+.app-shell .workload-dialog p { font-size: 14px; line-height: 1.6; }
+.app-shell .dialog-specs span { font-size: 12.5px; }
+.app-shell .dialog-actions button, .app-shell .asset-dialog-actions button { min-height: 50px; font-size: 15px; }
+.app-shell .asset-dialog label span, .app-shell .asset-dialog small { font-size: 12.5px; }
+.app-shell .gpu-conflict-note { font-size: 13px; line-height: 1.5; }
+.app-shell .gpu-close-button { min-height: 40px; font-size: 13px; }
+
+/* System page */
+.system-page { display: grid; gap: 14px; }
+.system-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.system-action { min-height: 72px; display: grid; justify-items: center; align-content: center; gap: 6px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.system-action.start { border-color: var(--accent); color: var(--accent-strong); background: #b5d9bc14; }
+.system-action.stop { border-color: #6d443e; color: var(--danger); }
+.system-action:disabled { opacity: .5; }
+.hw-panel { display: grid; gap: 10px; }
+.hw-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.hw-meter { min-width: 0; display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.hw-meter-label { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 12px; }
+.hw-meter b { color: var(--text); font: 600 14px/1.3 ui-monospace, Consolas, monospace; text-align: end; }
+.hw-meter i { direction: ltr; display: block; height: 5px; border-radius: 5px; overflow: hidden; background: var(--surface-3); }
+.hw-meter i em { display: block; height: 100%; border-radius: 5px; background: var(--accent); transition: width .4s; }
+.hw-meter.mid i em { background: var(--gold); }
+.hw-meter.high i em { background: var(--danger); }
+.hw-note { margin: 0; padding: 10px 12px; border-radius: 10px; background: #ffffff08; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.hw-note.warning { color: var(--gold); background: #e3c4871a; }
+.app-shell .comfy-page { padding: 14px; border-radius: var(--radius); border-color: var(--line); background: var(--surface); box-shadow: none; }
+.app-shell .comfy-page-heading h2 { font-size: 17px; }
+.app-shell .comfy-state { font-size: 13px; }
+.app-shell .comfy-log { max-height: 50vh; font-size: 12px; line-height: 1.55; }
+.app-shell .studio-showcase { margin-top: 0; }
+
+@media (min-width: 620px) {
+  .app-shell { padding-inline: 24px; }
+  .app-shell .topbar { margin-inline: -24px; padding-inline: 24px; }
+  .app-shell .mode-grid { grid-template-columns: repeat(4, 1fr); }
+  .app-shell .settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-shell .resolution-block, .app-shell .destination-block { grid-column: auto; }
+  .hw-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .action-bar { grid-template-columns: 1fr auto; align-items: center; }
+  .app-shell .create-button { width: auto; min-width: 220px; }
+  .app-shell .page-tabs { inset: auto auto 14px 50%; width: min(520px, calc(100% - 32px)); transform: translateX(-50%); padding: 6px; border: 1px solid var(--line-strong); border-radius: 20px; box-shadow: 0 18px 50px #000a; }
+  .action-bar, .app-shell .join-dock { bottom: calc(var(--nav-height) + 30px); }
+  .app-shell { padding-bottom: calc(var(--nav-height) + 56px); }
+}
+@media (max-width: 359px) {
+  .preset-chips button small { white-space: normal; text-align: center; }
+  .app-shell .turbo-profile-toggle { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .app-shell .topbar-live i { animation: none; } }

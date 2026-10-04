@@ -4,16 +4,21 @@ import { ArrowDown, ArrowUp, AudioLines, BrainCircuit, Check, ChevronDown, Chevr
 import './styles.css'
 import { ProductionStudio } from './production'
 import { ImageGenStudio } from './image_gen'
-import { PerformancePanel, type StudioPreset } from './performance'
+import { HardwarePanel, hardwareWarnings, useHardware } from './performance'
+import './mobile.css'
 
 type Mode = 'text' | 'frames' | 'reference' | 'opening' | 'closing' | 'lip_sync'
 type Engine = 'turbo' | 'standard' | 'spectrum'
 type Encoder = 'native' | 'clipproj'
-type TurboProfile = 'v1' | 'v4'
+type TurboProfile = 'v1' | 'v4' | 'official'
+type StudioPreset = 'draft' | 'recommended' | 'max'
+type StudioView = 'create' | 'queue' | 'library'
 type Resolution = '512x288' | '736x416' | '864x480' | '768x768' | '1024x768' | '768x1024' | '1344x768' | '768x1344'
 type Status = 'queued' | 'starting' | 'running' | 'verifying' | 'completed' | 'failed' | 'canceled'
 type Phase = 'queued' | 'starting' | 'sampling' | 'processing' | 'verifying' | 'completed' | 'failed' | 'canceled'
 type Page = 'studio' | 'production' | 'image_gen' | 'comfy'
+const RESULT_PAGE_SIZE = 6
+const durationChips = [3, 5, 8, 10]
 type Job = {
   id: string; prompt: string; mode: Mode; duration: number; status: Status; progress: number;
   engine: Engine; turbo_profile?: TurboProfile; encoder: Encoder; steps: number; width: number; height: number; megapixels?: number; aspect_ratio?: string; position?: number;
@@ -83,7 +88,7 @@ type Preferences = {
   megapixels: number
 }
 
-const defaultPreferences: Preferences = { engine: 'turbo', encoder: 'native', turboProfile: 'v1', turboSteps: 4, standardSteps: 20, spectrumSteps: 16, resolution: '736x416', aspect: '16:9', megapixels: 0.31 }
+const defaultPreferences: Preferences = { engine: 'turbo', encoder: 'native', turboProfile: 'v1', turboSteps: 4, standardSteps: 20, spectrumSteps: 16, resolution: '736x416', aspect: '16:9', megapixels: 0.6 }
 const preferenceKey = 'h3-generation-preferences-v1'
 
 function readPreferences(): Preferences {
@@ -92,13 +97,13 @@ function readPreferences(): Preferences {
     return {
       engine: saved.engine === 'standard' || saved.engine === 'spectrum' ? saved.engine : 'turbo',
       encoder: saved.encoder === 'clipproj' ? 'clipproj' : 'native',
-      turboProfile: saved.turboProfile === 'v4' ? 'v4' : 'v1',
+      turboProfile: saved.turboProfile === 'v4' || saved.turboProfile === 'official' ? saved.turboProfile : 'v1',
       turboSteps: Number.isInteger(saved.turboSteps) && saved.turboSteps! >= 4 && saved.turboSteps! <= 12 ? saved.turboSteps! : 4,
       standardSteps: Number.isInteger(saved.standardSteps) && saved.standardSteps! >= 8 && saved.standardSteps! <= 30 ? saved.standardSteps! : 20,
       spectrumSteps: Number.isInteger(saved.spectrumSteps) && saved.spectrumSteps! >= 8 && saved.spectrumSteps! <= 30 ? saved.spectrumSteps! : 16,
       resolution: resolutions.some(item => item.id === saved.resolution) ? saved.resolution! : '736x416',
       aspect: aspectOptions.includes(saved.aspect as Aspect) ? saved.aspect as Aspect : '16:9',
-      megapixels: typeof saved.megapixels === 'number' && saved.megapixels >= 0.1 && saved.megapixels <= 2 ? saved.megapixels : 0.31,
+      megapixels: typeof saved.megapixels === 'number' && saved.megapixels >= 0.1 && saved.megapixels <= 2 ? saved.megapixels : defaultPreferences.megapixels,
     }
   } catch {
     return defaultPreferences
@@ -179,17 +184,23 @@ function App() {
   const [batch, setBatch] = useState(false)
   const [connected, setConnected] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(readPreferences)
-  const selectedPreset: StudioPreset | null = duration === 5 && preferences.aspect === '16:9'
-    ? preferences.engine === 'standard' && preferences.encoder === 'native' && preferences.standardSteps === 20 && preferences.megapixels === 0.41 ? 'quality'
-    : preferences.engine === 'turbo' && preferences.turboProfile === 'v1' && preferences.turboSteps === 4
-      ? preferences.encoder === 'clipproj' && preferences.megapixels === 0.31 ? 'balanced'
-      : preferences.encoder === 'native' && preferences.megapixels === 0.15 ? 'preview' : null
-    : null : null
+  const chooseInitialProfile = useRef((() => {
+    try { return !localStorage.getItem(preferenceKey) } catch { return true }
+  })())
+  const [turboOfficialReady, setTurboOfficialReady] = useState(false)
+  const [studioView, setStudioView] = useState<StudioView>('create')
+  const [resultLimits, setResultLimits] = useState<Record<string, number>>({})
+  const hardware = useHardware()
+  const recommendedProfile: TurboProfile = turboOfficialReady ? 'official' : 'v1'
+  const turboFour = preferences.engine === 'turbo' && preferences.turboSteps === 4 && preferences.encoder === 'native'
+  const selectedPreset: StudioPreset | null = preferences.engine === 'standard' && preferences.encoder === 'native' && preferences.standardSteps === 20 && preferences.megapixels === 0.6 ? 'max'
+    : turboFour && preferences.turboProfile === 'v1' && preferences.megapixels === 0.15 ? 'draft'
+    : turboFour && preferences.turboProfile === recommendedProfile && preferences.megapixels === 0.6 ? 'recommended'
+    : null
   const applyStudioPreset = (preset: StudioPreset) => {
-    setPreferences(current => ({ ...current, engine: preset === 'quality' ? 'standard' : 'turbo',
-      encoder: preset === 'balanced' ? 'clipproj' : 'native', turboProfile: 'v1', turboSteps: 4,
-      standardSteps: 20, aspect: '16:9', megapixels: preset === 'quality' ? 0.41 : preset === 'balanced' ? 0.31 : 0.15 }))
-    setDuration(5)
+    setPreferences(current => ({ ...current, engine: preset === 'max' ? 'standard' : 'turbo', encoder: 'native',
+      turboProfile: preset === 'recommended' ? recommendedProfile : 'v1', turboSteps: 4, standardSteps: 20,
+      megapixels: preset === 'draft' ? 0.15 : 0.6 }))
   }
   const [confirming, setConfirming] = useState(false)
   const [referenceImages, setReferenceImages] = useState<File[]>([])
@@ -264,6 +275,11 @@ function App() {
       setSpectrumReady(data.spectrum_ready)
       setClipprojReady(data.clipproj_ready)
       setTurboV4Ready(data.turbo_v4_ready)
+      setTurboOfficialReady(Boolean(data.turbo_official_ready))
+      if (chooseInitialProfile.current && typeof data.turbo_official_ready === 'boolean') {
+        chooseInitialProfile.current = false
+        setPreferences(current => ({ ...current, turboProfile: data.turbo_official_ready ? 'official' : 'v1', turboSteps: 4 }))
+      }
       setReferenceTurboReady(data.reference_turbo_ready)
       setAudioLockReady(Boolean(data.audio_lock_ready))
       if (typeof data.qwen_image_ready === 'boolean') setQwenImageReady(data.qwen_image_ready)
@@ -280,7 +296,7 @@ function App() {
       const response = await fetch('/api/jobs', { cache: 'no-store' })
       if (response.ok) {
         const data = await response.json()
-        setJobs(data.jobs); setSequences(data.sequences || []); setLibrary(data.library || { root: '', projects: [], assignments: [] }); setReferenceReady(data.reference_ready); setReference10Ready(data.reference_10s_ready); setSpectrumReady(data.spectrum_ready); setClipprojReady(data.clipproj_ready); setTurboV4Ready(data.turbo_v4_ready); setReferenceTurboReady(data.reference_turbo_ready); setGpuConflict(Boolean(data.gpu_conflict))
+        setJobs(data.jobs); setSequences(data.sequences || []); setLibrary(data.library || { root: '', projects: [], assignments: [] }); setReferenceReady(data.reference_ready); setReference10Ready(data.reference_10s_ready); setSpectrumReady(data.spectrum_ready); setClipprojReady(data.clipproj_ready); setTurboV4Ready(data.turbo_v4_ready); setTurboOfficialReady(Boolean(data.turbo_official_ready)); setReferenceTurboReady(data.reference_turbo_ready); setGpuConflict(Boolean(data.gpu_conflict))
         setAudioLockReady(Boolean(data.audio_lock_ready))
         if (typeof data.qwen_image_ready === 'boolean') setQwenImageReady(data.qwen_image_ready)
       }
@@ -517,9 +533,10 @@ function App() {
   const paragraphCount = useMemo(() => batch ? prompt.trim().split(/\n\s*\n/).filter(Boolean).length : 1, [prompt, batch])
   const effectiveEngine: Engine = mode === 'lip_sync' ? (experimentalTurboLipSync ? 'turbo' : 'standard') : mode === 'reference' && preferences.engine === 'turbo' && !referenceTurboReady ? 'standard' : preferences.engine
   const effectiveEncoder: Encoder = mode === 'lip_sync' ? 'native' : preferences.encoder
-  const generationSteps = mode === 'lip_sync' && experimentalTurboLipSync ? 4 : mode === 'reference' && effectiveEngine === 'turbo' ? 4 : effectiveEngine === 'turbo' ? preferences.turboSteps : effectiveEngine === 'spectrum' ? preferences.spectrumSteps : preferences.standardSteps
+  const officialTurbo = effectiveEngine === 'turbo' && preferences.turboProfile === 'official' && mode !== 'reference' && mode !== 'lip_sync'
+  const generationSteps = mode === 'lip_sync' && experimentalTurboLipSync ? 4 : mode === 'reference' && effectiveEngine === 'turbo' ? 4 : officialTurbo ? 4 : effectiveEngine === 'turbo' ? preferences.turboSteps : effectiveEngine === 'spectrum' ? preferences.spectrumSteps : preferences.standardSteps
   const stepRange = mode === 'lip_sync' && experimentalTurboLipSync ? { min: 4, max: 4, recommended: 4 } : effectiveEngine === 'turbo'
-    ? preferences.turboProfile === 'v4' ? { min: 4, max: 8, recommended: 6 } : { min: 4, max: 12, recommended: 4 }
+    ? preferences.turboProfile === 'official' ? { min: 4, max: 4, recommended: 4 } : preferences.turboProfile === 'v4' ? { min: 4, max: 8, recommended: 6 } : { min: 4, max: 12, recommended: 4 }
     : effectiveEngine === 'spectrum' ? { min: 8, max: 30, recommended: 16 } : { min: 8, max: 30, recommended: 20 }
   const calculatedResolution = dimensionsFor(preferences.aspect, preferences.megapixels)
   const requestedFrames = Math.max(5, Math.round(duration * 24))
@@ -529,7 +546,7 @@ function App() {
   const relativeLoad = calculatedResolution.width * calculatedResolution.height * duration * generationSteps * engineLoadFactor * promptMultiplier / (736 * 416 * 5 * 4)
   const loadLevel = relativeLoad >= 5 ? 'very-heavy' : relativeLoad >= 2 ? 'heavy' : 'normal'
   const loadLabel = loadLevel === 'very-heavy' ? 'כבד מאוד' : loadLevel === 'heavy' ? 'כבד' : 'רגיל'
-  const needsConfirmation = experimentalTurboLipSync || effectiveEngine === 'spectrum' || effectiveEncoder === 'clipproj' || (effectiveEngine === 'turbo' && preferences.turboProfile === 'v4') || connected || relativeLoad >= 2 || (batch && paragraphCount >= 5)
+  const needsConfirmation = effectiveEngine === 'spectrum' || effectiveEncoder === 'clipproj' || (effectiveEngine === 'turbo' && preferences.turboProfile === 'v4') || connected || relativeLoad >= 2 || (batch && paragraphCount >= 5)
   const queued = jobs.filter(j => j.status === 'queued')
   const active = jobs.filter(j => ['starting', 'running', 'verifying'].includes(j.status))
   const history = jobs.filter(j => !['queued', 'starting', 'running', 'verifying'].includes(j.status))
@@ -698,8 +715,8 @@ function App() {
     else if (next === 'lip_sync') {
       setClosingFrame(null)
       setReferenceImages([]); setReferenceVideos([]); setReferenceAudio(null); setNoAudio(false)
-      setExperimentalTurboLipSync(false)
-      setPreferences(current => ({ ...current, engine: 'standard', encoder: 'native', aspect: '16:9', megapixels: Math.max(current.megapixels, 0.41) }))
+      setExperimentalTurboLipSync(true)
+      setPreferences(current => ({ ...current, encoder: 'native', megapixels: Math.max(current.megapixels, 0.6) }))
       setBatch(false)
     }
     else if (next === 'reference') {
@@ -738,10 +755,11 @@ function App() {
 
   const selectTurboProfile = (turboProfile: TurboProfile) => {
     if (turboProfile === 'v4' && !turboV4Ready) return
+    if (turboProfile === 'official' && !turboOfficialReady) return
     setPreferences(current => ({
       ...current,
       turboProfile,
-      turboSteps: turboProfile === 'v4' ? Math.min(current.turboSteps, 8) : current.turboSteps,
+      turboSteps: turboProfile === 'official' ? 4 : turboProfile === 'v4' ? Math.min(current.turboSteps, 8) : current.turboSteps,
     }))
   }
 
@@ -775,7 +793,7 @@ function App() {
     form.set('engine', effectiveEngine); form.set('encoder', effectiveEncoder); form.set('steps', String(generationSteps)); form.set('megapixels', String(preferences.megapixels)); form.set('aspect_ratio', preferences.aspect); form.set('connected', String(connected)); form.set('no_audio', String(noAudio))
     form.set('experimental_turbo_lip_sync', String(experimentalTurboLipSync))
     if (destinationProject) { form.set('project_id', destinationProject); if (destinationFolder) form.set('folder_id', destinationFolder) }
-    if (effectiveEngine === 'turbo' && mode !== 'reference') form.set('turbo_profile', preferences.turboProfile)
+    if (effectiveEngine === 'turbo' && mode !== 'reference') form.set('turbo_profile', mode === 'lip_sync' ? 'v1' : preferences.turboProfile)
     if (mode === 'frames') {
       form.set('first_frame', openingFrame!)
       if (closingFrame) form.set('last_frame', closingFrame)
@@ -793,6 +811,7 @@ function App() {
     try {
       await mutate('/api/jobs', 'POST', form, sessionToken)
       setPrompt(''); setReferenceImages([]); setReferenceVideos([]); setReferenceAudio(null); setLipSyncAudio(null); setOpeningFrame(null); setClosingFrame(null); setBatch(false); setConnected(false); setAudioTrimStart(0)
+      setStudioView('queue'); window.scrollTo({ top: 0 })
     } catch (e) { setError(e instanceof Error ? e.message : 'השליחה נכשלה') }
     finally { setSending(false) }
   }
@@ -858,12 +877,16 @@ function App() {
 
   const renderAssetContainer = (key: string, title: string, assets: ResultAsset[], level: 'project'|'folder'|'unassigned', children?: React.ReactNode) => {
     const collapsed = !!collapsedAssetGroups[key]
+    const limit = resultLimits[key] || RESULT_PAGE_SIZE
     return <section className={`asset-result-container ${level}`} key={key}>
       <button type="button" className="asset-container-toggle" onClick={() => toggleAssetGroup(key)} aria-expanded={!collapsed}>
         {collapsed ? <ChevronLeft size={17}/> : <ChevronDown size={17}/>}
         <Folder size={17}/><strong>{title}</strong><span>{assets.length} נכסים</span>
       </button>
-      {!collapsed && <div className="asset-container-content">{children || assets.map(renderResultAsset)}</div>}
+      {!collapsed && <div className="asset-container-content">{children || <>
+        {assets.slice(0, limit).map(renderResultAsset)}
+        {assets.length > limit && <button type="button" className="show-more" onClick={() => setResultLimits(current => ({ ...current, [key]: limit + RESULT_PAGE_SIZE * 2 }))}>הצג עוד · נותרו {assets.length - limit}</button>}
+      </>}</div>}
     </section>
   }
 
@@ -879,32 +902,58 @@ function App() {
     return renderAssetContainer(`project:${project.id}`, project.name, assets, 'project', content)
   }
 
-  return <main className={`shell ${page === 'production' ? 'production-shell-host' : ''}`}>
+  const queueCount = active.length + queued.length + activeSequences.length + queuedSequences.length
+  const resultCount = history.length + sequenceHistory.length
+  const activeJob = active[0]
+  const activePercent = activeJob ? Math.round(Math.max(0, Math.min(1, activeJob.progress || 0)) * 100) : 0
+  const profileLabel = (profile: TurboProfile) => profile === 'official' ? 'OFFICIAL' : profile.toUpperCase()
+  const createLabel = sending ? 'שולח…' : connected ? `צור רצף של ${paragraphCount} שוטים` : batch ? `הוסף ${paragraphCount} לתור` : 'צור וידאו'
+  const presetCards: { id: StudioPreset; icon: React.ReactNode; title: string; detail: string }[] = [
+    { id: 'draft', icon: <Zap size={18} />, title: 'טיוטה', detail: 'Turbo · 0.15MP' },
+    { id: 'recommended', icon: <Sparkles size={18} />, title: 'מומלץ', detail: turboOfficialReady ? 'Turbo רשמי · 0.6MP' : 'Turbo · 0.6MP' },
+    { id: 'max', icon: <Gauge size={18} />, title: 'רגיל', detail: 'Standard 20 · 0.6MP' },
+  ]
+  const presetsEnabled = mode === 'text' || mode === 'frames' || mode === 'opening' || mode === 'closing'
+  const pageTabs: { id: Page; icon: React.ReactNode; label: string }[] = [
+    { id: 'studio', icon: <Clapperboard size={20} />, label: 'סטודיו' },
+    { id: 'production', icon: <Sparkles size={20} />, label: 'הפקה' },
+    { id: 'image_gen', icon: <ImageIcon size={20} />, label: 'תמונות' },
+    { id: 'comfy', icon: <Terminal size={20} />, label: 'מערכת' },
+  ]
+
+  return <main className={`shell app-shell ${page === 'production' ? 'production-shell-host' : ''}`}>
     <header className="topbar">
-      <div className="brand-mark"><Clapperboard size={22} /></div>
-      <div><h1>H3 Studio</h1><p>יוצרים וידאו מהמחשב שלך</p></div>
+      <div className="brand-mark"><Clapperboard size={20} /></div>
+      <div className="topbar-title"><h1>H3 Studio</h1>{activeJob ? <p className="topbar-live"><i />יוצר עכשיו{activeJob.phase === 'sampling' && activeJob.total_steps ? ` · ${activePercent}%` : ''}</p> : <p>וידאו מקומי מהמחשב שלך</p>}</div>
       <div className="topbar-actions">
-        <button className={`comfy-status-button ${comfyRunning ? 'running' : ''}`} onClick={() => setPage('comfy')}><i /> <span>{comfyRunning ? 'ComfyUI running' : 'ComfyUI stopped'}</span></button>
-        <button className="comfy-control-button" onClick={() => { void controlComfy(comfyRunning ? 'stop' : 'start') }} disabled={comfyBusy} aria-label={comfyRunning ? 'Stop ComfyUI' : 'Start ComfyUI'}>{comfyBusy ? <LoaderCircle className="spin" size={16} /> : comfyRunning ? <Square size={15} /> : <Power size={16} />}</button>
-        <button className="comfy-control-button lock-button" onClick={() => { void lockComputer() }} aria-label="Lock Windows PC" title="Lock Windows PC"><Lock size={15} /></button>
-        <button className="icon-button" onClick={() => { if (page === 'comfy') { setComfyLogCleared(false); void loadComfy(true) } else { void loadSession(); void load() } }} aria-label="רענון"><RefreshCw size={18} /></button>
+        <button className={`comfy-status-button ${comfyRunning ? 'running' : ''}`} onClick={() => setPage('comfy')} aria-label={comfyRunning ? 'ComfyUI running' : 'ComfyUI stopped'}><i /> <span>{comfyRunning ? 'מנוע פעיל' : 'מנוע כבוי'}</span></button>
       </div>
     </header>
-    <nav className="page-tabs" aria-label="Navigation"><button className={page === 'studio' ? 'active' : ''} onClick={() => setPage('studio')}><Clapperboard size={15} /> Studio</button><button className={page === 'production' ? 'active' : ''} onClick={() => setPage('production')}><Sparkles size={15} /> Production</button><button className={page === 'image_gen' ? 'active' : ''} onClick={() => setPage('image_gen')}><ImageIcon size={15} /> Image Gen</button><button className={page === 'comfy' ? 'active' : ''} onClick={() => setPage('comfy')}><Terminal size={15} /> ComfyUI logs</button></nav>
-    {gpuConflict && <div className="gpu-conflict-note"><ShieldAlert size={16} /><div><span>Fortnite is running and may use the GPU. Generation can become slow or stall; close Fortnite before starting ComfyUI jobs.</span><button type="button" className="gpu-close-button" onClick={() => { void closeFortnite() }} disabled={gpuBusy}>{gpuBusy ? 'Closing…' : 'Close Fortnite'}</button></div></div>}
-    {page === 'comfy' ? <ComfyPage running={comfyRunning} busy={comfyBusy} lines={comfyLogs} error={comfyError} onClear={() => { setComfyLogCleared(true); setComfyLogs([]) }} onRefresh={() => { setComfyLogCleared(false); void loadComfy(true) }} /> : page === 'production' ? <ProductionStudio csrf={csrf} /> : page === 'image_gen' ? <ImageGenStudio csrf={csrf} qwenImageReady={qwenImageReady} onUseInStudio={handleUseInStudio} /> : <>
+    {gpuConflict && <div className="gpu-conflict-note"><ShieldAlert size={16} /><div><span>Fortnite פועל ועלול לתפוס את הכרטיס. היצירה עלולה להאט או להיתקע.</span><button type="button" className="gpu-close-button" onClick={() => { void closeFortnite() }} disabled={gpuBusy}>{gpuBusy ? 'סוגר…' : 'סגור את Fortnite'}</button></div></div>}
+    {page === 'comfy' ? <section className="system-page">
+      <div className="system-controls">
+        <button type="button" className={`system-action ${comfyRunning ? 'stop' : 'start'}`} onClick={() => { void controlComfy(comfyRunning ? 'stop' : 'start') }} disabled={comfyBusy} aria-label={comfyRunning ? 'Stop ComfyUI' : 'Start ComfyUI'}>{comfyBusy ? <LoaderCircle className="spin" size={18} /> : comfyRunning ? <Square size={17} /> : <Power size={18} />}<span>{comfyRunning ? 'כבה את המנוע' : 'הפעל את המנוע'}</span></button>
+        <button type="button" className="system-action" onClick={() => { void lockComputer() }} aria-label="Lock Windows PC"><Lock size={17} /><span>נעל את המחשב</span></button>
+        <button type="button" className="system-action" onClick={() => { setComfyLogCleared(false); void loadComfy(true); void loadSession(); void load() }} aria-label="רענון"><RefreshCw size={17} /><span>רענון</span></button>
+      </div>
+      <HardwarePanel sample={hardware.sample} loading={hardware.loading} />
+      <ComfyPage running={comfyRunning} busy={comfyBusy} lines={comfyLogs} error={comfyError} onClear={() => { setComfyLogCleared(true); setComfyLogs([]) }} onRefresh={() => { setComfyLogCleared(false); void loadComfy(true) }} />
+    </section> : page === 'production' ? <ProductionStudio csrf={csrf} /> : page === 'image_gen' ? <ImageGenStudio csrf={csrf} qwenImageReady={qwenImageReady} onUseInStudio={handleUseInStudio} /> : <>
 
-    <PerformancePanel onPreset={applyStudioPreset} selected={selectedPreset} compactReady={clipprojReady} enabled={mode === 'text' || mode === 'frames' || mode === 'opening' || mode === 'closing'} />
-    <details className="asset-library-disclosure"><summary><Folder size={16} /> הספרייה שלך <span>פרויקטים, תיקיות ותוצאות</span><ChevronDown size={16}/></summary><section className="asset-library-panel">
-      <div className="asset-library-head"><div><span className="eyebrow"><Folder size={15}/> Asset library</span><h2>Projects and folders</h2><small dir="ltr">{library.root || 'state/projects'}</small></div><button type="button" onClick={() => { void createStudioProject() }}><FolderPlus size={16}/> New project</button></div>
-      <div className="asset-library-toolbar"><label><span>Show assets</span><select value={libraryProject} onChange={event => { setLibraryProject(event.target.value); setLibraryFolder('all') }}><option value="all">All assets</option><option value="unassigned">Unassigned</option>{library.projects.map(project => <option key={project.id} value={project.id}>{project.name} ({project.asset_count})</option>)}</select></label>{!['all','unassigned'].includes(libraryProject) && <label><span>Folder</span><select value={libraryFolder} onChange={event => setLibraryFolder(event.target.value)}><option value="all">All folders</option><option value="root">Project root</option>{library.projects.find(project => project.id === libraryProject)?.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>}</div>
-      {!['all','unassigned'].includes(libraryProject) && (() => { const project=library.projects.find(item=>item.id===libraryProject); return project ? <div className="asset-project-detail"><div className="asset-project-title"><div className="asset-project-label"><b>{project.name}</b><span>{project.asset_count} assets</span></div><div className="asset-project-actions"><button onClick={() => { void createStudioFolder(project.id) }}><FolderPlus size={14}/> Folder</button><button onClick={() => { void renameStudioProject(project) }}><Pencil size={13}/> Rename</button><button className="danger" onClick={() => { void deleteStudioProject(project) }}><Trash2 size={13}/></button></div></div><div className="asset-folder-list">{project.folders.map(folder => <div key={folder.id}><div className="asset-folder-name"><Folder size={14}/><span>{folder.name}</span></div><div className="asset-folder-actions"><button onClick={() => { void renameStudioFolder(project,folder) }}><Pencil size={12}/></button><button onClick={() => { void deleteStudioFolder(project,folder) }}><Trash2 size={12}/></button></div></div>)}{!project.folders.length && <small>No folders yet. Assets can still be stored in the project root.</small>}</div></div> : null })()}
-    </section>
+    <div className="view-switch" role="tablist" aria-label="תצוגות הסטודיו">
+      <button type="button" role="tab" aria-selected={studioView === 'create'} className={studioView === 'create' ? 'active' : ''} onClick={() => setStudioView('create')}><Sparkles size={16} /> יצירה</button>
+      <button type="button" role="tab" aria-selected={studioView === 'queue'} className={studioView === 'queue' ? 'active' : ''} onClick={() => setStudioView('queue')}><Play size={16} /> תור{queueCount > 0 && <b>{queueCount}</b>}</button>
+      <button type="button" role="tab" aria-selected={studioView === 'library'} className={studioView === 'library' ? 'active' : ''} onClick={() => setStudioView('library')}><Folder size={16} /> ספרייה{resultCount > 0 && <b className="muted">{resultCount}</b>}</button>
+    </div>
 
-    </details>
-    <section className="composer">
-      <div className="eyebrow"><Sparkles size={15} /> יצירה חדשה</div>
-      <div className="generation-destination"><Folder size={16}/><label><span>Save new results in project</span><select value={destinationProject} onChange={event => { setDestinationProject(event.target.value); setDestinationFolder('') }}><option value="">Unassigned · ComfyUI output</option>{library.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>Folder</span><select value={destinationFolder} disabled={!destinationProject} onChange={event => setDestinationFolder(event.target.value)}><option value="">Project root</option>{library.projects.find(project => project.id === destinationProject)?.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>{destinationProject && <button type="button" onClick={() => { void createStudioFolder(destinationProject) }}><FolderPlus size={15}/> New folder</button>}</div>
+    {studioView === 'create' && <section className="composer">
+      <div className="mode-grid" role="radiogroup" aria-label="סוג היצירה">
+        {modes.map(item => <button key={item.id} type="button" role="radio" aria-checked={mode === item.id} disabled={item.id === 'lip_sync' && !audioLockReady} className={`mode-card ${mode === item.id ? 'selected' : ''}`} onClick={() => selectMode(item.id)}>
+          <span className="mode-check">{mode === item.id && <Check size={13} />}</span>
+          <strong>{item.label}</strong><small>{item.id === 'lip_sync' && !audioLockReady ? 'ממתין ל־Native AudioLock' : item.hint}</small>
+        </button>)}
+      </div>
+
       <textarea aria-label="תיאור הסרטון" value={prompt} onChange={e => setPrompt(e.target.value)} maxLength={batch ? 80000 : undefined}
         placeholder={batch ? 'הדבק כמה פרומפטים. השאר שורה ריקה בין כל אחד…' : mode === 'lip_sync' ? 'אופציונלי: תאר את ההופעה, המצלמה וההבעה…' : 'תאר את הסרטון שאתה רוצה ליצור…'} />
       <div className="composer-meta"><span>{prompt.length.toLocaleString()} תווים</span><label className="batch-toggle"><input type="checkbox" checked={batch} disabled={mode === 'lip_sync'} onChange={e => { setBatch(e.target.checked); if (!e.target.checked) setConnected(false) }} /><span>כמה פרומפטים</span></label></div>
@@ -914,13 +963,6 @@ function App() {
         <button type="button" className={connected ? 'active connected' : ''} onClick={() => setConnected(true)}><Route size={17} /><span><strong>רצף מחובר</strong><small>סוף שוט הופך לפתיחת הבא</small></span></button>
       </div>}
       {connected && <div className="connected-note"><Route size={14} /><span>האפליקציה תייצר לפי הסדר, תבדוק כל שוט, תחלץ את הפריים האחרון ותחבר MP4 סופי אחד.</span></div>}
-
-      <div className="mode-grid">
-        {modes.map(item => <button key={item.id} type="button" disabled={item.id === 'lip_sync' && !audioLockReady} className={`mode-card ${mode === item.id ? 'selected' : ''}`} onClick={() => selectMode(item.id)}>
-          <span className="mode-check">{mode === item.id && <Check size={13} />}</span>
-          <strong>{item.label}</strong><small>{item.id === 'lip_sync' && !audioLockReady ? 'ממתין ל־Native AudioLock' : item.hint}</small>
-        </button>)}
-      </div>
 
       {mode === 'frames' && <div className="frame-grid">
         <ImageDropzone label="הוסף פריים פותח · חובה" hint="התמונה הראשונה · JPG, PNG או WebP עד 20MB" preview={openingPreview} onChange={setOpeningFrame} />
@@ -936,7 +978,6 @@ function App() {
             </button> : <button type="button" className="record-button recording" onClick={stopRecording}>
               <Square size={15} /><span>עצור הקלטה</span><b dir="ltr">{formatClipTime(recordingSeconds)}</b>
             </button>}
-            {!isRecording && <span className="recording-alternative"><Mic size={13} /> או הקלט מהמיקרופון במקום להעלות קובץ</span>}
           </div>
           {lipSyncAudioPreview && <audio ref={lipSyncAudioElementRef} className="lip-sync-audio-player" controls preload="metadata" src={lipSyncAudioPreview} onLoadedMetadata={syncLipSyncAudioPreview} onPlay={syncLipSyncAudioPreview} onSeeking={syncLipSyncAudioPreview} onTimeUpdate={stopAtLipSyncAudioPreviewEnd} />}
           {lipSyncAudio && lipSyncAudioDuration && lipSyncAudioDuration > duration + 0.08 && <div className="audio-trim-box">
@@ -958,42 +999,69 @@ function App() {
         {referenceAudio && <div className="reference-audio-note"><AudioLines size={14} /><span>בפרומפט אפשר לכתוב <b dir="ltr">&lt;Picture 1&gt;</b> ו־<b dir="ltr">&lt;Audio 1&gt;</b>. H3 ישתמש בקול ובתזמון כרפרנס וייצר אודיו חדש יחד עם תנועת השפתיים.</span></div>}
       </>}
 
-      <div className="generation-panel">
-        <div className="generation-heading">
+      <div className="quick-settings">
+        <div className="quick-row">
+          <span className="quick-label">איכות</span>
+          <div className="preset-chips">
+            {presetCards.map(preset => <button type="button" key={preset.id} aria-pressed={selectedPreset === preset.id} disabled={!presetsEnabled} onClick={() => applyStudioPreset(preset.id)}>{preset.icon}<strong>{preset.title}</strong><small dir="ltr">{preset.detail}</small></button>)}
+          </div>
+          {!presetsEnabled && <p className="setting-note">הפרופילים זמינים במצב טקסט או I2V. ברפרנס ובדיבוב ההגדרות נקבעות למטה.</p>}
+        </div>
+        <div className="quick-row">
+          <span className="quick-label">משך</span>
+          <div className="chip-row">
+            {durationChips.map(value => <button type="button" key={value} className={duration === value ? 'active' : ''} disabled={mode === 'lip_sync' && !!lipSyncAudioDuration && value > lipSyncAudioDuration} onClick={() => setDuration(value)}>{value} שנ׳</button>)}
+            <label className="duration-input"><span>משך בשניות</span><input dir="ltr" type="number" inputMode="decimal" min="0.5" max="60" step="0.1" value={duration} onChange={event => { const value = Math.max(0.5, Math.min(60, Number(event.target.value) || 0.5)); setDuration(mode === 'lip_sync' && lipSyncAudioDuration ? Math.min(value, lipSyncAudioDuration) : value) }} /></label>
+          </div>
+        </div>
+        <div className="quick-row">
+          <span className="quick-label">יחס</span>
+          <div className="aspect-grid">{aspectOptions.map(aspect => <button type="button" key={aspect} className={preferences.aspect === aspect ? 'active' : ''} onClick={() => setPreferences(current => ({ ...current, aspect }))}>{aspect}</button>)}</div>
+        </div>
+      </div>
+
+      <details className="generation-panel">
+        <summary className="generation-heading">
           <div><SlidersHorizontal size={16} /><span>הגדרות יצירה</span></div>
           <span className={`load-badge ${loadLevel}`}><i /> עומס {loadLabel} · ×{relativeLoad.toFixed(relativeLoad < 10 ? 1 : 0)}</span>
-        </div>
+          <ChevronDown size={18} className="panel-chevron" />
+        </summary>
 
         <div className="settings-grid">
           <div className="setting-block">
             <div className="setting-title"><span>מנוע</span><small>מהירות מול איכות</small></div>
-            <div className="engine-toggle">
-              <button type="button" className={effectiveEngine === 'turbo' ? 'active' : ''} aria-pressed={effectiveEngine === 'turbo'} disabled={mode === 'lip_sync' || mode === 'reference' && !referenceTurboReady} onClick={() => selectEngine('turbo')}>
+            {mode === 'lip_sync' ? <div className="engine-toggle lip-engine-toggle">
+              <button type="button" className={experimentalTurboLipSync ? 'active' : ''} aria-pressed={experimentalTurboLipSync} disabled={sending} onClick={() => toggleExperimentalTurboLipSync(true)}>
+                <Zap size={16} /><span><strong>Turbo</strong><small>4 סטפים · מומלץ</small></span>
+              </button>
+              <button type="button" className={!experimentalTurboLipSync ? 'active' : ''} aria-pressed={!experimentalTurboLipSync} disabled={sending} onClick={() => toggleExperimentalTurboLipSync(false)}>
+                <Gauge size={16} /><span><strong>רגיל</strong><small>20 סטפים · להשוואה</small></span>
+              </button>
+            </div> : <div className="engine-toggle">
+              <button type="button" className={effectiveEngine === 'turbo' ? 'active' : ''} aria-pressed={effectiveEngine === 'turbo'} disabled={mode === 'reference' && !referenceTurboReady} onClick={() => selectEngine('turbo')}>
                 <Zap size={16} /><span><strong>Turbo</strong><small>מהיר</small></span>
               </button>
               <button type="button" className={effectiveEngine === 'standard' ? 'active' : ''} aria-pressed={effectiveEngine === 'standard'} onClick={() => selectEngine('standard')}>
                 <Gauge size={16} /><span><strong>רגיל</strong><small>מדויק</small></span>
               </button>
-              <button type="button" className={effectiveEngine === 'spectrum' ? 'active' : ''} aria-pressed={effectiveEngine === 'spectrum'} disabled={mode === 'lip_sync' || !spectrumReady} onClick={() => selectEngine('spectrum')}>
+              <button type="button" className={effectiveEngine === 'spectrum' ? 'active' : ''} aria-pressed={effectiveEngine === 'spectrum'} disabled={!spectrumReady} onClick={() => selectEngine('spectrum')}>
                 <Sparkles size={16} /><span><strong>Spectrum</strong><small>native + מהיר</small></span>
               </button>
-            </div>
-            {mode === 'lip_sync' && <label className="audio-output-toggle experimental-turbo-toggle">
-              <input type="checkbox" checked={experimentalTurboLipSync} onChange={event => toggleExperimentalTurboLipSync(event.target.checked)} disabled={sending} />
-              <span>נסה Turbo בדיבוב</span><small>ניסוי v1 · 4 סטפים</small>
-            </label>}
+            </div>}
             {mode === 'reference' && !referenceTurboReady && <p className="setting-note">Ref2VA Turbo יופיע אחרי הורדת ה־LoRA הייעודית</p>}
             {mode === 'reference' && referenceTurboReady && <p className="setting-note">Ref2VA Turbo משתמש ב־4 סטפים וב־LoRA ייעודית</p>}
-            {mode === 'lip_sync' && !experimentalTurboLipSync && <p className="setting-note">דיבוב משתמש ב־Native AudioLock · Standard · 32B כדי לשמור את האודיו שהועלה מדויק.</p>}
-            {mode === 'lip_sync' && experimentalTurboLipSync && <p className="setting-note">Turbo בדיבוב הוא ניסוי: v1 · 4 סטפים. האודיו ננעל, אבל צריך לבדוק את סנכרון הפה בתוצאה.</p>}
-            {!spectrumReady && <p className="setting-note">Spectrum יופיע אחרי שה־ComfyUI עם התוסף יופעל מחדש</p>}
+            {mode === 'lip_sync' && experimentalTurboLipSync && <p className="setting-note">המסלול ששימש לשירה בקליפ: Turbo v1 עם AudioLock. האודיו המקורי נשמר בתוצאה. אפשר לבחור במסלול הרגיל להשוואה.</p>}
+            {mode === 'lip_sync' && !experimentalTurboLipSync && <p className="setting-note">Native AudioLock · Standard · 32B. המסלול האיטי, לבדיקה מול Turbo.</p>}
+            {!spectrumReady && mode !== 'lip_sync' && <p className="setting-note">Spectrum יופיע אחרי שה־ComfyUI עם התוסף יופעל מחדש</p>}
             {effectiveEngine === 'turbo' && mode !== 'reference' && mode !== 'lip_sync' && <>
               <div className="setting-title turbo-profile-title"><span>Turbo LoRA</span><small>בחירת אופי התוצאה</small></div>
               <div className="turbo-profile-toggle">
-                <button type="button" className={preferences.turboProfile === 'v1' ? 'active' : ''} aria-pressed={preferences.turboProfile === 'v1'} onClick={() => selectTurboProfile('v1')}><strong>v1 · 850</strong><small>יציב יותר בתנועה מהירה</small></button>
-                <button type="button" className={preferences.turboProfile === 'v4' ? 'active' : ''} aria-pressed={preferences.turboProfile === 'v4'} disabled={!turboV4Ready} onClick={() => selectTurboProfile('v4')}><strong>v4 · 600</strong><small>פנים ופרטים טובים יותר</small></button>
+                <button type="button" className={preferences.turboProfile === 'v1' ? 'active' : ''} aria-pressed={preferences.turboProfile === 'v1'} onClick={() => selectTurboProfile('v1')}><strong>v1 · 850</strong><small>יציב בתנועה מהירה</small></button>
+                <button type="button" className={preferences.turboProfile === 'v4' ? 'active' : ''} aria-pressed={preferences.turboProfile === 'v4'} disabled={!turboV4Ready} onClick={() => selectTurboProfile('v4')}><strong>v4 · 600</strong><small>פנים ופרטים</small></button>
+                <button type="button" className={preferences.turboProfile === 'official' ? 'active' : ''} aria-pressed={preferences.turboProfile === 'official'} disabled={!turboOfficialReady} onClick={() => selectTurboProfile('official')}><strong>רשמי · 768p</strong><small>4 סטפים · מסלול הקליפ</small></button>
               </div>
               {!turboV4Ready && <p className="setting-note">Turbo v4 ייפתח אחרי הורדת המודל ובדיקת checksum</p>}
+              {!turboOfficialReady && <p className="setting-note">Turbo הרשמי אינו מותקן כרגע. אפשר להשתמש ב־v1.</p>}
               {preferences.turboProfile === 'v4' && generationSteps === 4 && <p className="setting-note">בתנועה מהירה v4 על 4 סטפים עלול למרוח; 6–8 סטפים מומלצים</p>}
             </>}
           </div>
@@ -1019,7 +1087,7 @@ function App() {
               <div><strong>{generationSteps}</strong><span>סטפים</span></div>
               <button type="button" aria-label="הוספת סטפים" onClick={() => setGenerationSteps(generationSteps + 1)} disabled={generationSteps === stepRange.max}><Plus size={16} /></button>
             </div>
-            <input className="steps-range" dir="ltr" type="range" min={stepRange.min} max={stepRange.max} step="1" value={generationSteps} onChange={event => setGenerationSteps(Number(event.target.value))} aria-label="מספר סטפים" />
+            <input className="steps-range" dir="ltr" type="range" min={stepRange.min} max={stepRange.max} step="1" value={generationSteps} disabled={stepRange.min === stepRange.max} onChange={event => setGenerationSteps(Number(event.target.value))} aria-label="מספר סטפים" />
             <div className="range-labels"><span>{stepRange.min}</span><span>{stepRange.max}</span></div>
           </div>
 
@@ -1030,42 +1098,54 @@ function App() {
 
           <div className="setting-block resolution-block">
             <div className="setting-title"><span>רזולוציה</span><small>כפולות 32 שמתאימות ל־H3</small></div>
-            <div className="aspect-grid">{aspectOptions.map(aspect => <button type="button" key={aspect} className={preferences.aspect === aspect ? 'active' : ''} onClick={() => setPreferences(current => ({ ...current, aspect }))}>{aspect}</button>)}</div>
-            <label className="numeric-control"><span>Megapixels</span><input dir="ltr" type="number" min="0.1" max="2" step="0.01" value={preferences.megapixels} onChange={event => setPreferences(current => ({ ...current, megapixels: Math.max(0.1, Math.min(2, Number(event.target.value) || 0.1)) }))} /><small>טווח 0.1–2.0 · H3 מעגל לכפולות 32</small></label>
+            <label className="numeric-control"><span>Megapixels</span><input dir="ltr" type="number" inputMode="decimal" min="0.1" max="2" step="0.01" value={preferences.megapixels} onChange={event => setPreferences(current => ({ ...current, megapixels: Math.max(0.1, Math.min(2, Number(event.target.value) || 0.1)) }))} /><small>טווח 0.1–2.0 · H3 מעגל לכפולות 32</small></label>
             <div className="calculated-resolution">{calculatedResolution.id} · {(calculatedResolution.width * calculatedResolution.height / 1_000_000).toFixed(2)} MP בפועל</div>
           </div>
-        </div>
 
-        <div className="generation-summary">
-          <div className="profile-summary"><b dir="ltr">{engineLabel(effectiveEngine)}</b>{effectiveEngine === 'turbo' && mode !== 'reference' && <><i>·</i><b dir="ltr">{preferences.turboProfile.toUpperCase()}</b></>}<i>·</i><b dir="ltr">{encoderLabel(effectiveEncoder)}</b><i>·</i><b>{generationSteps} סטפים</b><i>·</i><b dir="ltr">{calculatedResolution.id}</b></div>
-          <small>{loadLevel === 'normal' ? 'מוכן ליצירה' : 'לפני השליחה יוצג אישור עומס'}</small>
+          <div className="setting-block destination-block">
+            <div className="setting-title"><span>שמירה בפרויקט</span><small>היכן יישמרו התוצאות</small></div>
+            <div className="generation-destination"><label><span>פרויקט</span><select value={destinationProject} onChange={event => { setDestinationProject(event.target.value); setDestinationFolder('') }}><option value="">ללא פרויקט · הפלט של ComfyUI</option>{library.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>תיקייה</span><select value={destinationFolder} disabled={!destinationProject} onChange={event => setDestinationFolder(event.target.value)}><option value="">שורש הפרויקט</option>{library.projects.find(project => project.id === destinationProject)?.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>{destinationProject && <button type="button" onClick={() => { void createStudioFolder(destinationProject) }}><FolderPlus size={15}/> תיקייה חדשה</button>}</div>
+          </div>
         </div>
-      </div>
+      </details>
 
-      <div className="final-row">
-        <label className="duration-input"><span>משך בשניות</span><input dir="ltr" type="number" min="0.5" max="60" step="0.1" value={duration} onChange={event => { const value = Math.max(0.5, Math.min(60, Number(event.target.value) || 0.5)); setDuration(mode === 'lip_sync' && lipSyncAudioDuration ? Math.min(value, lipSyncAudioDuration) : value) }} /><small>{mode === 'lip_sync' ? 'האודיו ייחתך לאורך הזה' : 'H3 מעגל אוטומטית לפריים הקרוב'}</small></label>
-        <button className="create-button" onClick={() => { void submit() }} disabled={sending || isRecording} aria-busy={sending}><span>{sending ? 'שולח…' : connected ? `צור רצף של ${paragraphCount} שוטים` : batch ? `הוסף ${paragraphCount} לתור` : 'צור וידאו'}</span>{sending ? <LoaderCircle className="spin" size={19} /> : connected ? <Route size={18} /> : <Send size={18} />}</button>
-      </div>
+      {hardwareWarnings(hardware.sample).map(warning => <p className="quiet-warning" key={warning}>{warning}</p>)}
       {mode === 'reference' && !referenceReady && <p className="quiet-warning">מודל הרפרנס עדיין בהתקנה. פריימים וטקסט זמינים כרגיל.</p>}
       {mode === 'reference' && referenceReady && !reference10Ready && <p className="quiet-warning">רפרנס מעל 5 שניות ייפתח רק אחרי בדיקת עומס מוצלחת.</p>}
-      {error && <div className="error-banner">{error}</div>}
-    </section>
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
-    <section className="queue-section">
-      <div className="section-heading"><div><span>התור שלך</span><h2>{active.length || activeSequences.length ? 'היצירה בתנועה' : queued.length || queuedSequences.length ? 'ממתין ליצירה' : 'הכול שקט כרגע'}</h2></div><span className="queue-count">{active.length + queued.length + activeSequences.length + queuedSequences.length}</span></div>
-      {!active.length && !queued.length && !activeSequences.length && !queuedSequences.length && <div className="empty"><div><Play size={22} /></div><p>הסרטון הבא שלך מתחיל בפרומפט למעלה</p></div>}
+      <div className="action-bar">
+        <div className="profile-summary"><b dir="ltr">{engineLabel(effectiveEngine)}</b>{effectiveEngine === 'turbo' && mode !== 'reference' && mode !== 'lip_sync' && <><i>·</i><b dir="ltr">{profileLabel(preferences.turboProfile)}</b></>}<i>·</i><b>{generationSteps} סטפים</b><i>·</i><b dir="ltr">{calculatedResolution.id}</b><i>·</i><b>{duration} שנ׳</b></div>
+        <button className="create-button" onClick={() => { void submit() }} disabled={sending || isRecording} aria-busy={sending}><span>{createLabel}</span>{sending ? <LoaderCircle className="spin" size={19} /> : connected ? <Route size={18} /> : <Send size={18} />}</button>
+      </div>
+    </section>}
+
+    {studioView === 'queue' && <section className="queue-section">
+      <div className="section-heading"><div><span>התור שלך</span><h2>{active.length || activeSequences.length ? 'היצירה בתנועה' : queued.length || queuedSequences.length ? 'ממתין ליצירה' : 'הכול שקט כרגע'}</h2></div><span className="queue-count">{queueCount}</span></div>
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {!queueCount && <div className="empty"><div><Play size={22} /></div><p>אין משימות בתור</p><button type="button" className="empty-action" onClick={() => setStudioView('create')}>צור וידאו חדש</button></div>}
       {activeSequences.map(sequence => <SequenceCard key={sequence.id} sequence={sequence} assignment={assignmentFor('sequence',sequence.id)} onCancel={() => mutate(`/api/sequences/${sequence.id}/cancel`)} />)}
       {active.map(j => <JobCard key={j.id} job={j} assignment={assignmentFor('job',j.id)} onCancel={() => mutate(`/api/jobs/${j.id}/cancel`)} />)}
       {queuedTasks.map(task => task.kind === 'sequence'
         ? <SequenceCard key={task.sequence.id} sequence={task.sequence} assignment={assignmentFor('sequence',task.sequence.id)} onCancel={() => mutate(`/api/sequences/${task.sequence.id}/cancel`)} />
         : <JobCard key={task.job.id} job={task.job} assignment={assignmentFor('job',task.job.id)} index={queued.indexOf(task.job)} total={queued.length} onUp={() => move(task.job.id, -1)} onDown={() => move(task.job.id, 1)} onDelete={() => { void deleteGeneratedAsset('job',task.job.id,task.job.prompt.slice(0,80)) }} />)}
-    </section>
+      {!!visibleResultAssets.length && <>
+        <div className="section-heading recent-heading"><div><span>אחרונים</span><h2>התוצאה האחרונה</h2></div><button type="button" className="link-button" onClick={() => setStudioView('library')}>לכל הספרייה</button></div>
+        {visibleResultAssets.slice(0, 1).map(renderResultAsset)}
+      </>}
+    </section>}
 
-    {(!!history.length || !!sequenceHistory.length) && <section className="results-section">
-      <div className="section-heading"><div><span>תוצאות</span><h2>הסרטונים האחרונים</h2></div><span className="selection-hint">בחר לפי סדר לחיבור</span></div>
+    {studioView === 'library' && <section className="results-section">
+      <section className="asset-library-panel">
+        <div className="asset-library-head"><div><span className="eyebrow"><Folder size={15}/> הספרייה שלך</span><small dir="ltr">{library.root || 'state/projects'}</small></div><button type="button" onClick={() => { void createStudioProject() }}><FolderPlus size={16}/> פרויקט חדש</button></div>
+        <div className="asset-library-toolbar"><label><span>הצג</span><select value={libraryProject} onChange={event => { setLibraryProject(event.target.value); setLibraryFolder('all') }}><option value="all">כל הנכסים</option><option value="unassigned">ללא פרויקט</option>{library.projects.map(project => <option key={project.id} value={project.id}>{project.name} ({project.asset_count})</option>)}</select></label>{!['all','unassigned'].includes(libraryProject) && <label><span>תיקייה</span><select value={libraryFolder} onChange={event => setLibraryFolder(event.target.value)}><option value="all">כל התיקיות</option><option value="root">שורש הפרויקט</option>{library.projects.find(project => project.id === libraryProject)?.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>}</div>
+        {!['all','unassigned'].includes(libraryProject) && (() => { const project=library.projects.find(item=>item.id===libraryProject); return project ? <div className="asset-project-detail"><div className="asset-project-title"><div className="asset-project-label"><b>{project.name}</b><span>{project.asset_count} נכסים</span></div><div className="asset-project-actions"><button onClick={() => { void createStudioFolder(project.id) }}><FolderPlus size={14}/> תיקייה</button><button onClick={() => { void renameStudioProject(project) }}><Pencil size={13}/> שינוי שם</button><button className="danger" aria-label="מחיקת פרויקט" onClick={() => { void deleteStudioProject(project) }}><Trash2 size={13}/></button></div></div><div className="asset-folder-list">{project.folders.map(folder => <div key={folder.id}><div className="asset-folder-name"><Folder size={14}/><span>{folder.name}</span></div><div className="asset-folder-actions"><button aria-label="שינוי שם תיקייה" onClick={() => { void renameStudioFolder(project,folder) }}><Pencil size={12}/></button><button aria-label="מחיקת תיקייה" onClick={() => { void deleteStudioFolder(project,folder) }}><Trash2 size={12}/></button></div></div>)}{!project.folders.length && <small>אין עדיין תיקיות. אפשר לשמור נכסים גם בשורש הפרויקט.</small>}</div></div> : null })()}
+      </section>
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {!!resultCount && <div className="section-heading"><div><span>תוצאות</span><h2>הסרטונים שלך</h2></div><span className="selection-hint">בחר לפי סדר לחיבור</span></div>}
       {!!selectedResults.length && <div className="join-dock">
         <div className="join-dock-head"><div><Combine size={18} /><span><strong>{selectedResults.length} קטעים נבחרו</strong><small>זה יהיה סדר החיבור</small></span></div><button type="button" onClick={() => setSelectedResults([])}>נקה</button></div>
-        <div className="join-order">{selectedResults.map((reference, index) => <div className="join-chip" key={reference}><b>{index + 1}</b><span>{selectedResultLabel(reference)}</span><button type="button" onClick={() => moveSelectedResult(index, -1)} disabled={index === 0}><ArrowUp size={14} /></button><button type="button" onClick={() => moveSelectedResult(index, 1)} disabled={index === selectedResults.length - 1}><ArrowDown size={14} /></button><button type="button" onClick={() => toggleResult(reference)}><X size={14} /></button></div>)}</div>
+        <div className="join-order">{selectedResults.map((reference, index) => <div className="join-chip" key={reference}><b>{index + 1}</b><span>{selectedResultLabel(reference)}</span><button type="button" aria-label="הזז למעלה" onClick={() => moveSelectedResult(index, -1)} disabled={index === 0}><ArrowUp size={14} /></button><button type="button" aria-label="הזז למטה" onClick={() => moveSelectedResult(index, 1)} disabled={index === selectedResults.length - 1}><ArrowDown size={14} /></button><button type="button" aria-label="הסר" onClick={() => toggleResult(reference)}><X size={14} /></button></div>)}</div>
         <button type="button" className="join-button" disabled={selectedResults.length < 2 || joining} onClick={() => { void joinSelected() }}>{joining ? <LoaderCircle className="spin" size={17} /> : <Combine size={17} />} {joining ? 'מוסיף לתור…' : 'חבר לסרטון אחד'}</button>
       </div>}
       <div className="asset-results-tree">
@@ -1081,9 +1161,8 @@ function App() {
           </>
         })()}
       </div>
-      {!visibleSequenceHistory.length && !visibleHistory.length && <div className="empty"><div><Folder size={22}/></div><p>No generated videos are stored in this location.</p></div>}
+      {!visibleSequenceHistory.length && !visibleHistory.length && <div className="empty"><div><Folder size={22}/></div><p>אין כאן עדיין סרטונים.</p></div>}
     </section>}
-    <footer>H3 עובד מקומית · החיבור זמין רק ברשת הפרטית שלך</footer>
 
     {confirming && <div className="dialog-backdrop" onMouseDown={() => setConfirming(false)}>
       <section className="workload-dialog" role="dialog" aria-modal="true" aria-labelledby="workload-title" onMouseDown={event => event.stopPropagation()}>
@@ -1093,7 +1172,7 @@ function App() {
         <p>המחשב עשוי לעבוד זמן רב ולהשתמש בהרבה זיכרון. אפשר להמשיך, או לחזור ולהוריד סטפים, משך או רזולוציה.</p>
         <div className="dialog-specs">
           <span>{engineLabel(effectiveEngine)}</span>
-          {effectiveEngine === 'turbo' && mode !== 'reference' && <span>{preferences.turboProfile.toUpperCase()}</span>}
+          {effectiveEngine === 'turbo' && mode !== 'reference' && mode !== 'lip_sync' && <span>{profileLabel(preferences.turboProfile)}</span>}
           <span>{encoderLabel(effectiveEncoder)}</span>
           <span>{generationSteps} סטפים</span>
           <span>{calculatedResolution.id}</span><span>{h3Frames} frames</span>
@@ -1108,6 +1187,7 @@ function App() {
     </div>}
     {editingAsset && <div className="dialog-backdrop asset-dialog-backdrop" onMouseDown={() => setEditingAsset(null)}><section className="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title" onMouseDown={event => event.stopPropagation()}><div className="asset-dialog-head"><div><span>ארגון קובץ</span><h2 id="asset-dialog-title">העברה או שינוי שם</h2></div><button onClick={() => setEditingAsset(null)} aria-label="סגירה"><X size={17}/></button></div><p>{editingAsset.label}</p><label><span>פרויקט</span><select value={editProject} onChange={event => { setEditProject(event.target.value); setEditFolder('') }}><option value="">ללא פרויקט · חזרה לפלט של ComfyUI</option>{library.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>תיקייה</span><select value={editFolder} disabled={!editProject} onChange={event => setEditFolder(event.target.value)}><option value="">שורש הפרויקט</option>{library.projects.find(project => project.id === editProject)?.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label><label><span>שם הקובץ</span><div className="asset-filename"><input value={editFilename} disabled={!editProject} onChange={event => setEditFilename(event.target.value)} placeholder="השארת שם הקובץ הנוכחי"/><b>.mp4</b></div></label><small>העברה או שינוי שם כאן משנים את הקובץ בפועל ושומרים על הקישור ב־Studio.</small><div className="asset-dialog-actions"><button onClick={() => setEditingAsset(null)}>ביטול</button><button className="confirm" onClick={() => { void saveAssetLocation() }}><Move size={15}/> שמירת שינויים</button></div></section></div>}
     </>}
+    <nav className="page-tabs" aria-label="ניווט ראשי">{pageTabs.map(tab => <button key={tab.id} type="button" className={page === tab.id ? 'active' : ''} aria-current={page === tab.id ? 'page' : undefined} onClick={() => { setPage(tab.id); window.scrollTo({ top: 0 }) }}>{tab.icon}<span>{tab.label}</span>{tab.id === 'studio' && queueCount > 0 && <b>{queueCount}</b>}</button>)}</nav>
   </main>
 }
 

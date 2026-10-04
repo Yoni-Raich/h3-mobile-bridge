@@ -20,9 +20,15 @@ with sync_playwright() as p:
     assert page.locator("h1").inner_text() == "H3 Studio"
     assert page.locator("html").get_attribute("dir") == "rtl"
     assert page.get_by_text("הגדרות יצירה", exact=True).is_visible()
+    assert page.locator(".page-tabs button").count() == 4
+    assert page.locator(".view-switch button").count() == 3
+    page.locator(".view-switch button", has_text="ספרייה").click()
     newest_job = page.locator(".job-card").first
     assert newest_job.locator(".job-config").is_visible()
     assert newest_job.locator(".job-config span").count() >= 4
+    page.locator(".view-switch button", has_text="יצירה").click()
+    assert page.locator(".preset-chips button").count() == 3
+    page.locator(".generation-panel > summary").click()
 
     engines = page.locator(".engine-toggle button")
     encoders = page.locator(".encoder-toggle button")
@@ -34,7 +40,7 @@ with sync_playwright() as p:
     assert engines.count() == 3
 
     turbo_profiles = page.locator(".turbo-profile-toggle button")
-    assert turbo_profiles.count() == 2
+    assert turbo_profiles.count() == 3
     assert turbo_profiles.nth(0).get_attribute("aria-pressed") == "true"
     assert not turbo_profiles.nth(1).is_disabled()
     turbo_profiles.nth(1).click()
@@ -83,6 +89,7 @@ with sync_playwright() as p:
     desktop.goto(base, wait_until="domcontentloaded")
     desktop.wait_for_timeout(1000)
     assert desktop.get_by_text("הגדרות יצירה", exact=True).is_visible()
+    desktop.locator(".generation-panel > summary").click()
     assert desktop.locator(".settings-grid").evaluate("element => getComputedStyle(element).gridTemplateColumns.split(' ').length === 2")
     assert desktop.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     desktop.screenshot(path=str(desktop_output), full_page=False)
