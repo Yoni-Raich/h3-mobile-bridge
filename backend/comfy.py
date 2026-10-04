@@ -11,6 +11,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import httpx
 import websockets
 
+from .comfy_inputs import prepare_comfy_inputs
 from .config import (COMFY_CODE, COMFY_HOST, COMFY_PORT, COMFY_PYTHON,
                      COMFY_URL, INPUT, LOGS, MODELS, OUTPUT, TEMP, USER)
 
@@ -126,6 +127,7 @@ class ComfyClient:
             return (await client.get(COMFY_URL + "/object_info")).raise_for_status().json()
 
     async def submit(self, workflow: dict, client_id: str) -> str:
+        workflow = prepare_comfy_inputs(workflow)
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(COMFY_URL + "/prompt", json={"prompt": workflow, "client_id": client_id})
             if response.status_code >= 400:
