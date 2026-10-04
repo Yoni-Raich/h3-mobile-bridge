@@ -91,6 +91,28 @@
       "license_reference": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora"
     },
     {
+      "name": "Official FL2V Turbo 4-step LoRA",
+      "source_repository": "https://huggingface.co/Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "source_path": "loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+      "filename": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+      "target_directory": "loras",
+      "bytes": 1956192992,
+      "sha256": "c396a9a06f58399e9df9754b18299818d84a2ddd371724ba48fe4a41221437dc",
+      "license_reference": "https://huggingface.co/Comfy-Org/MiniMax-H3"
+    },
+    {
+      "name": "Ref2VA Turbo 4-step LoRA",
+      "source_repository": "https://huggingface.co/lightx2v/Minimax-h3-Turbo",
+      "revision": "5d1d4829fe614c1b93fcfd9cc7718e9ba71f73e1",
+      "source_path": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "filename": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "target_directory": "loras",
+      "bytes": 1956193000,
+      "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c",
+      "license_reference": "https://huggingface.co/lightx2v/Minimax-h3-Turbo"
+    },
+    {
       "name": "ClipProj learned projection",
       "source_repository": "https://huggingface.co/NicoLab28/ClipProj-MiniMax-H3",
       "revision": "ef89d0fc87ec004adc3330641dd6acb79bd785a7",
@@ -134,6 +156,17 @@
       "bytes": 5510600,
       "sha256": "30eb3c2cc7fb6b470d9717ff840d359313ac27cd64b705e32da1baa10f72d6a8",
       "license_reference": "https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo"
+    },
+    {
+      "name": "Qwen Image 2.1 Viggle Turbo GGUF Q4_K_M",
+      "source_repository": "https://huggingface.co/Abiray/Qwen-Image-2.1-viggle-4-steps-turbo-GGUF",
+      "revision": "0016110b769f6625b92098ab9e3f4906dba367f6",
+      "source_path": "qwen_image_2.1_turbo_Q4_K_M.gguf",
+      "filename": "qwen_image_2.1_turbo_Q4_K_M.gguf",
+      "target_directory": "diffusion_models",
+      "bytes": 4189346592,
+      "sha256": "b44de26eb38b5a62d8efc0f97e842a17c00c0cd70552e1b22ca110beb89d2196",
+      "license_reference": "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
     }
   ]
 }

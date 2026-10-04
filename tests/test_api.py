@@ -2,12 +2,12 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
 import backend.db as db_module
-from backend.main import app, worker
+from backend.main import app, packet_audio_duration, worker
 
 
 class JobApiTests(unittest.TestCase):
@@ -59,6 +59,24 @@ class JobApiTests(unittest.TestCase):
             connection.close()
         self.assertEqual(row, ("v4", 6))
 
+    def test_official_turbo_profile_requires_the_installed_lora(self):
+        models = Path(self.temp.name) / "models"
+        with patch("backend.main.MODELS", models):
+            missing = self.post(engine="turbo", turbo_profile="official", steps="4")
+        self.assertEqual(missing.status_code, 409, missing.text)
+        lora = models / "loras" / "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors"
+        lora.parent.mkdir(parents=True)
+        lora.write_bytes(b"test-marker")
+        with patch("backend.main.MODELS", models):
+            response = self.post(engine="turbo", turbo_profile="official", steps="4")
+        self.assertEqual(response.status_code, 200, response.text)
+        connection = sqlite3.connect(self.path)
+        try:
+            row = connection.execute("SELECT turbo_profile,steps FROM jobs").fetchone()
+        finally:
+            connection.close()
+        self.assertEqual(row, ("official", 4))
+
     def test_reference_audio_is_persisted_as_an_optional_official_reference(self):
         data = {
             "prompt": "<Picture 1> speaks in time with <Audio 1>",
@@ -83,6 +101,71 @@ class JobApiTests(unittest.TestCase):
         finally:
             connection.close()
         self.assertEqual(row, ("face.png", "voice.wav"))
+
+    def test_lip_sync_accepts_optional_opening_frame_and_uploaded_audio(self):
+        data = {
+            "prompt": "",
+            "mode": "lip_sync", "duration": "5", "engine": "standard",
+            "encoder": "native", "audio_start": "2.5",
+        }
+        files = {
+            "first_frame": ("face.png", b"image-placeholder", "image/png"),
+            "audio": ("voice.wav", b"audio-placeholder", "audio/wav"),
+        }
+        with patch("backend.main.save_image", new=AsyncMock(return_value=("C:/safe/face.png", "face.png"))), \
+             patch("backend.main.save_audio", new=AsyncMock(return_value=("C:/safe/voice.wav", "voice.wav"))) as save_audio_mock, \
+             patch("backend.main.probe_audio_duration", return_value=208.5), \
+             patch("backend.main.trim_audio", return_value=("C:/safe/trimmed.wav", "trimmed.wav")):
+            response = self.client.post(
+                "/api/jobs", data=data, files=files,
+                headers={"X-CSRF-Token": self.token},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        save_audio_mock.assert_awaited_once_with(ANY, allow_longer=True)
+        connection = sqlite3.connect(self.path)
+        try:
+            row = connection.execute(
+                "SELECT mode,engine,encoder,first_frame_name,reference_audio_name,no_audio FROM jobs"
+            ).fetchone()
+        finally:
+            connection.close()
+        self.assertEqual(row, ("lip_sync", "standard", "native", "face.png", "trimmed.wav", 0))
+
+    def test_experimental_turbo_lip_sync_is_opt_in(self):
+        data = {
+            "prompt": "",
+            "mode": "lip_sync", "duration": "5", "engine": "turbo",
+            "encoder": "native", "steps": "4", "turbo_profile": "v1",
+            "experimental_turbo_lip_sync": "true",
+        }
+        files = {"audio": ("voice.wav", b"audio-placeholder", "audio/wav")}
+        with patch("backend.main.save_audio", new=AsyncMock(return_value=("C:/safe/voice.wav", "voice.wav"))), \
+             patch("backend.main.probe_audio_duration", return_value=5.0):
+            response = self.client.post(
+                "/api/jobs", data=data, files=files,
+                headers={"X-CSRF-Token": self.token},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        connection = sqlite3.connect(self.path)
+        try:
+            row = connection.execute("SELECT mode,engine,steps,encoder FROM jobs").fetchone()
+        finally:
+            connection.close()
+        self.assertEqual(row, ("lip_sync", "turbo", 4, "native"))
+
+    def test_live_webm_packet_duration_fallback(self):
+        payload = {
+            "packets": [
+                {"pts_time": "-0.007", "duration_time": "0.020"},
+                {"pts_time": "3.973", "duration_time": "0.020"},
+            ]
+        }
+        self.assertAlmostEqual(packet_audio_duration(payload), 4.0, places=3)
+
+    def test_lip_sync_requires_audio(self):
+        response = self.post(mode="lip_sync", engine="standard", encoder="native")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("uploaded audio", response.text)
 
     def test_spectrum_profile_is_persisted(self):
         response = self.post(engine="spectrum", steps="16", resolution="736x416")
@@ -188,7 +271,7 @@ class JobApiTests(unittest.TestCase):
         self.assertEqual(self.post(engine="standard", steps="7").status_code, 400)
         response = self.post(mode="reference", engine="turbo", steps="4")
         self.assertEqual(response.status_code, 400)
-        self.assertIn("standard or spectrum", response.json()["detail"])
+        self.assertIn("requires at least one image or video", response.json()["detail"])
 
 if __name__ == "__main__":
     unittest.main()

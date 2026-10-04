@@ -2,7 +2,8 @@ param(
     [switch]$Json,
     [ValidateSet('Full')][string]$Profile = 'Full',
     [switch]$SkipGpu,
-    [switch]$SkipTailscale
+    [switch]$SkipTailscale,
+    [switch]$ExistingRuntime
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,7 +32,21 @@ try {
         $drive = (Split-Path -Qualifier $repo).TrimEnd(':')
         $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($drive):'"
         $freeGiB = [math]::Round($disk.FreeSpace / 1GB, 1)
-        Add-Check 'free_disk_100_gib' ($freeGiB -ge 100) "$freeGiB GiB free on $($drive):"
+        if ($ExistingRuntime) {
+            $existingConfig = Get-BridgeConfig -RepoRoot $repo
+            $existingModels = Get-JsonFile -Path (Join-Path $repo 'manifests\models.json')
+            $runtimePresent = (Test-Path -LiteralPath $existingConfig.Python -PathType Leaf) -and
+                (Test-Path -LiteralPath (Join-Path $existingConfig.ComfyRoot 'main.py') -PathType Leaf)
+            foreach ($model in $existingModels.models) {
+                $modelPath = Join-Path (Resolve-ModelTargetDirectory -Model $model -Config $existingConfig) ([string]$model.filename)
+                if (-not (Test-Path -LiteralPath $modelPath -PathType Leaf) -or
+                    (Get-Item -LiteralPath $modelPath).Length -ne [int64]$model.bytes) { $runtimePresent = $false }
+            }
+            Add-Check 'existing_runtime_files' $runtimePresent 'Python, ComfyUI and every manifest model must already exist with the expected size'
+            Add-Check 'free_disk_runtime_20_gib' ($freeGiB -ge 20) "$freeGiB GiB free on $($drive):; runtime check only, no model installation"
+        } else {
+            Add-Check 'free_disk_100_gib' ($freeGiB -ge 100) "$freeGiB GiB free on $($drive):"
+        }
     }
 
     foreach ($tool in @('git', 'node', 'npm', 'ffmpeg', 'ffprobe', 'curl')) {

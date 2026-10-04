@@ -52,8 +52,12 @@ def _as_int(value: Any, default: int) -> int:
 
 def _local_host(value: Any, name: str) -> str:
     host = str(value)
+    # The bridge may bind on all interfaces so a phone can reach it over
+    # Tailscale/LAN. ComfyUI itself remains loopback-only.
+    if name == "app.host" and host == "0.0.0.0":
+        return host
     if host != "127.0.0.1":
-        raise RuntimeError(f"{name} must be 127.0.0.1")
+        raise RuntimeError(f"{name} must be 127.0.0.1 (or app.host may be 0.0.0.0)")
     return host
 
 
@@ -80,14 +84,16 @@ APP_PORT = _port(os.environ.get("H3_APP_PORT", app_config.get("port")), 8787, "a
 COMFY_HOST = _local_host(os.environ.get("H3_COMFY_HOST", comfy_config.get("host", "127.0.0.1")), "comfy.host")
 COMFY_PORT = _port(os.environ.get("H3_COMFY_PORT", comfy_config.get("port")), 8190, "comfy.port")
 COMFY_URL = f"http://{COMFY_HOST}:{COMFY_PORT}"
+ENABLE_TRITON_BACKEND = comfy_config.get("enable_triton_backend", False)
+if not isinstance(ENABLE_TRITON_BACKEND, bool):
+    raise RuntimeError("comfy.enable_triton_backend must be a JSON boolean")
 
 STATE = ROOT / "state"
-INPUT = STATE / "input"
-OUTPUT = STATE / "output"
-TEMP = STATE / "temp"
-USER = STATE / "user"
 LOGS = STATE / "logs"
 SEQUENCES = STATE / "sequences"
+PRODUCTIONS = STATE / "productions"
+PROJECTS = _as_path(LOCAL_CONFIG.get("projects_dir"), STATE / "projects")
+MANAGED_SKILLS = STATE / "skills"
 DB_PATH = STATE / "jobs.sqlite3"
 REFERENCE_10S_MARKER = STATE / "reference-10s-verified"
 
@@ -103,31 +109,83 @@ COMFY_PYTHON = _as_path(
 MODELS = _as_path(
     comfy_config.get("models"), RUNTIME_ROOT / "models", relative_to=RUNTIME_ROOT
 )
+# Use the existing ComfyUI runtime directories by default.  The bridge keeps
+# its own database/log/sequence state above, while ComfyUI shares the same
+# user, input, output, and temp locations as a direct ComfyUI launch.
+INPUT = _as_path(comfy_config.get("input"), COMFY_CODE / "input", relative_to=COMFY_CODE)
+OUTPUT = _as_path(comfy_config.get("output"), COMFY_CODE / "output", relative_to=COMFY_CODE)
+showcase_name = str(app_config.get("showcase_video") or "")
+if showcase_name and (Path(showcase_name).name != showcase_name or not showcase_name.endswith(".mp4")):
+    raise RuntimeError("app.showcase_video must be an MP4 filename inside the output directory")
+SHOWCASE_VIDEO = OUTPUT / showcase_name if showcase_name else None
+TEMP = _as_path(comfy_config.get("temp"), COMFY_CODE / "temp", relative_to=COMFY_CODE)
+USER = _as_path(comfy_config.get("user"), COMFY_CODE / "user", relative_to=COMFY_CODE)
 SPECTRUM_NODE_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-Spectrum-MiniMax-H3"
 CLIPPROJ_NODE_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-ClipProj"
-CLIPPROJ_NODE_COMMIT = "ca9b325e83cb02cb5e652570569c6f3f20fee342"
+AUDIOLOCK_NODE_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-H3-NativeAudioLock"
+SLA_NODE_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-PlagueKind-Nodes-only-sparse"
+CLIPPROJ_NODE_COMMIT = str(comfy_config.get("clipproj_node_revision") or "ca9b325e83cb02cb5e652570569c6f3f20fee342")
 SPECTRUM_NODE_VERSION = "v0.2.5"
 TURBO_LORAS = {
     "v1": "minimax_h3_turbo_4step_ema_ckpt850.safetensors",
     "v4": "minimax_h3_turbo_v4_step600_ema.safetensors",
+    # Official Comfy-Org FL2V Turbo, trained for four steps at 768p. It uses a
+    # plain LoRA loader with Euler/simple and video shift 6, not the Turbo node.
+    "official": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
 }
+TURBO_PROFILES = tuple(TURBO_LORAS)
+REF2VA_TURBO_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 TURBO_LORA = TURBO_LORAS["v1"]
 FL2VA_MODEL = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
 REF2VA_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 CLIPPROJ_TEXT_ENCODER = "qwen3vl_4b_fp8_scaled.safetensors"
-CLIPPROJ_PROJECTION = "h3_qwen3vl_4b_tap24.safetensors"
+CLIPPROJ_PROJECTION = str(comfy_config.get("clipproj_projection") or "h3_qwen3vl_4b_tap24.safetensors")
+if Path(CLIPPROJ_PROJECTION).name != CLIPPROJ_PROJECTION or not CLIPPROJ_PROJECTION.endswith(".safetensors"):
+    raise RuntimeError("comfy.clipproj_projection must be a safetensors filename")
 VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
+FUSED_MODEL = "minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors"
+FUSED_VIDEO_VAE = "minimax_h3_video_vae_int8_convrot.safetensors"
+POST_FLOW_MODEL = "DasiwaMinimaxH3_dasiwaHybridV2_3203130.safetensors"
+POST_FLOW_VIDEO_VAE = FUSED_VIDEO_VAE
+POST_FLOW_TURBO_LORA = "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors"
+POST_FLOW_REALISM_LORA = "h3-realism-people-t2v-i2v-r2v.safetensors"
+POST_FLOW_LMS_LORA = "minimax_h3_lms_v1.0_r64.safetensors"
+COMFYUI_GGUF_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-GGUF"
+QWEN_IMAGE_MODEL = "qwen-image-2.1-Q4_K_M.gguf"
+QWEN_IMAGE_TURBO_MODEL = "qwen_image_2.1_turbo_Q4_K_M.gguf"
+QWEN_IMAGE_TEXT_ENCODER = "qwen3vl_8b_int8_convrot.safetensors"
+QWEN_IMAGE_VAE = "qwen_image_2.1_vae_bf16.safetensors"
 
 TAILSCALE_ENABLED = bool(tailscale_config.get("enabled", True))
 TAILSCALE_SCOPE = str(tailscale_config.get("scope", "tailnet"))
 TAILSCALE_HOSTNAME = str(tailscale_config.get("hostname") or "").strip()
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+extra_hosts = app_config.get("allowed_hosts", [])
+if not isinstance(extra_hosts, list) or not all(isinstance(item, str) and item.strip() for item in extra_hosts):
+    raise RuntimeError("app.allowed_hosts must be a list of host names")
+for extra_host in extra_hosts:
+    if extra_host.strip() not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(extra_host.strip())
 if TAILSCALE_HOSTNAME and TAILSCALE_HOSTNAME not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(TAILSCALE_HOSTNAME)
 
 WORKSPACE = ROOT
 
-for path in (STATE, INPUT, OUTPUT, TEMP, USER, LOGS, SEQUENCES):
+agents_config = LOCAL_CONFIG.get("agents", {})
+if not isinstance(agents_config, dict):
+    raise RuntimeError("agents configuration must be an object")
+CODEX_COMMAND = str(agents_config.get("codex_command") or "codex").strip()
+AGY_COMMAND = str(agents_config.get("agy_command") or "agy").strip()
+AGENT_TIMEOUT_SECONDS = max(30, _as_int(agents_config.get("timeout_seconds"), 600))
+PRODUCTION_CONCURRENCY = max(1, min(8, _as_int(agents_config.get("production_concurrency"), 3)))
+CODEX_DEFAULT_RUNTIME = str(agents_config.get("codex_runtime") or "codex").strip()
+CODEX_DEFAULT_MODEL = str(agents_config.get("codex_model") or "gpt-5.6-sol").strip()
+CODEX_DEFAULT_EFFORT = str(agents_config.get("codex_effort") or "high").strip()
+AGY_DEFAULT_RUNTIME = str(agents_config.get("agy_runtime") or "agy").strip()
+AGY_DEFAULT_MODEL = str(agents_config.get("agy_model") or "gemini-3.1-pro-high").strip()
+AGY_DEFAULT_EFFORT = str(agents_config.get("agy_effort") or "high").strip()
+
+for path in (STATE, INPUT, OUTPUT, TEMP, USER, LOGS, SEQUENCES, PRODUCTIONS, PROJECTS, MANAGED_SKILLS):
     path.mkdir(parents=True, exist_ok=True)

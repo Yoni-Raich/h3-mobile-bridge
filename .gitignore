@@ -23,3 +23,5 @@ install-report.json
 *.sqlite3-wal
 *.sqlite3-shm
 *.bak
+bridge.pid
+diff.patch

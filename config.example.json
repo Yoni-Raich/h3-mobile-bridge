@@ -1,13 +1,31 @@
 {
   "runtime_root": ".runtime",
   "profile": "full",
+  "projects_dir": "state/projects",
   "app": {
     "host": "127.0.0.1",
-    "port": 8787
+    "port": 8787,
+    "showcase_video": "",
+    "allowed_hosts": []
   },
   "comfy": {
     "host": "127.0.0.1",
-    "port": 8190
+    "port": 8190,
+    "enable_triton_backend": false,
+    "clipproj_projection": "h3_qwen3vl_4b_tap24.safetensors",
+    "clipproj_node_revision": "ca9b325e83cb02cb5e652570569c6f3f20fee342"
+  },
+  "agents": {
+    "codex_command": "codex",
+    "agy_command": "agy",
+    "timeout_seconds": 600,
+    "production_concurrency": 3,
+    "codex_runtime": "codex",
+    "codex_model": "gpt-5.6-sol",
+    "codex_effort": "high",
+    "agy_runtime": "agy",
+    "agy_model": "gemini-3.1-pro-high",
+    "agy_effort": "high"
   },
   "tailscale": {
     "enabled": true,
