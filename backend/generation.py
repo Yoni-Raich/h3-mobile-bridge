@@ -81,8 +81,8 @@ def normalize_generation_settings(
         # aspect_ratio to ResolutionSelector, which owns final dimensions.
         ratios = {"1:1": 1.0, "16:9": 16 / 9, "9:16": 9 / 16, "4:3": 4 / 3, "3:4": 3 / 4}
         ratio = ratios[resolved_aspect]
-        width = max(256, round((resolved_megapixels * 1_000_000 * ratio) ** 0.5 / 32) * 32)
-        height = max(256, round((resolved_megapixels * 1_000_000 / ratio) ** 0.5 / 32) * 32)
+        width = max(256, round((resolved_megapixels * 1024 * 1024 * ratio) ** 0.5 / 32) * 32)
+        height = max(256, round((resolved_megapixels * 1024 * 1024 / ratio) ** 0.5 / 32) * 32)
         if width * height > MAX_PIXELS:
             raise ValueError("Megapixels produce a resolution above the 2.0 megapixel safety limit")
     resolved_encoder = encoder or "native"

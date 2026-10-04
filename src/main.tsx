@@ -63,8 +63,8 @@ const aspectOptions: Aspect[] = ['1:1', '4:3', '3:4', '16:9', '9:16']
 function dimensionsFor(aspect: Aspect, megapixels: number) {
   const ratios: Record<Aspect, number> = { '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4, '16:9': 16 / 9, '9:16': 9 / 16 }
   const ratio = ratios[aspect]
-  const width = Math.max(256, Math.round(Math.sqrt(megapixels * 1_000_000 * ratio) / 32) * 32)
-  const height = Math.max(256, Math.round(Math.sqrt(megapixels * 1_000_000 / ratio) / 32) * 32)
+  const width = Math.max(256, Math.round(Math.sqrt(megapixels * 1024 * 1024 * ratio) / 32) * 32)
+  const height = Math.max(256, Math.round(Math.sqrt(megapixels * 1024 * 1024 / ratio) / 32) * 32)
   return { width, height, id: `${width}x${height}` as Resolution }
 }
 
@@ -910,7 +910,7 @@ function App() {
   const createLabel = sending ? 'שולח…' : connected ? `צור רצף של ${paragraphCount} שוטים` : batch ? `הוסף ${paragraphCount} לתור` : 'צור וידאו'
   const presetCards: { id: StudioPreset; icon: React.ReactNode; title: string; detail: string }[] = [
     { id: 'draft', icon: <Zap size={18} />, title: 'טיוטה', detail: 'Turbo · 0.15MP' },
-    { id: 'recommended', icon: <Sparkles size={18} />, title: 'מומלץ', detail: turboOfficialReady ? 'Turbo רשמי · 0.6MP' : 'Turbo · 0.6MP' },
+    { id: 'recommended', icon: <Sparkles size={18} />, title: 'מומלץ', detail: turboOfficialReady ? 'Official · 0.6MP' : 'Turbo · 0.6MP' },
     { id: 'max', icon: <Gauge size={18} />, title: 'רגיל', detail: 'Standard 20 · 0.6MP' },
   ]
   const presetsEnabled = mode === 'text' || mode === 'frames' || mode === 'opening' || mode === 'closing'

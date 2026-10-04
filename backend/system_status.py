@@ -16,7 +16,9 @@ async def system_status() -> dict:
     async with _lock:
         if time.monotonic() - _sampled_at >= 5:
             sample = await asyncio.to_thread(gpu_sample)
-            disk = await asyncio.to_thread(shutil.disk_usage, MODELS)
+            # Hardware status must also work before models are installed.
+            disk_path = next(path for path in (MODELS, *MODELS.parents) if path.exists())
+            disk = await asyncio.to_thread(shutil.disk_usage, disk_path)
             _sample = {
                 **sample,
                 "available": bool(sample),

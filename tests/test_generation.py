@@ -7,6 +7,12 @@ from backend.workflows import (native_audio_lock_workflow, reference_workflow,
 
 
 class GenerationSettingsTests(unittest.TestCase):
+    def test_megapixel_metadata_matches_comfy_resolution_selector(self):
+        settings = normalize_generation_settings('text', megapixels=0.6, aspect_ratio='16:9')
+        self.assertEqual((settings.width, settings.height), (1056, 608))
+        portrait = normalize_generation_settings('text', megapixels=0.6, aspect_ratio='9:16')
+        self.assertEqual((portrait.width, portrait.height), (608, 1056))
+
     def test_current_defaults_are_preserved(self):
         self.assertEqual(
             normalize_generation_settings("text"),
@@ -231,3 +237,12 @@ class WorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProductionProfileDefaultsTests(unittest.TestCase):
+    def test_new_lip_sync_quality_keeps_explicit_existing_profiles(self):
+        from backend.music_video import normalize_production_profile
+        fresh = normalize_production_profile({"mode": "lip_sync"})
+        self.assertEqual((fresh["megapixels"], fresh["turbo_profile"], fresh["steps"]), (0.6, "v1", 4))
+        saved = normalize_production_profile({"mode": "lip_sync", "megapixels": 0.4})
+        self.assertEqual(saved["megapixels"], 0.4)

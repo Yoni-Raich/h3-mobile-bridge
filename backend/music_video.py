@@ -22,7 +22,7 @@ DEFAULT_AUDIO_CHUNKS: tuple[dict[str, Any], ...] = (
 
 DEFAULT_LIP_SYNC_PROFILE: dict[str, Any] = {
     "mode": "lip_sync",
-    "megapixels": 0.4,
+    "megapixels": 0.6,
     "aspect_ratio": "16:9",
     "engine": "turbo",
     "turbo_profile": "v1",

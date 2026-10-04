@@ -856,7 +856,8 @@ Create the complete shot-by-shot MiniMax H3 lip-sync prompt package from the app
 The top-level content object MUST contain exactly 8 shots in the same order as audio_timeline.json. Every shot
 must contain title, prompt, duration, audio_start, audio_end, caption_text, visual_beat, continuity, mode,
 megapixels, aspect_ratio, camera movement, visible action, lyric timestamps, and acceptance criteria. Use mode
-`lip_sync` for every shot, 0.4 megapixels, 16:9, Turbo v1 with exactly 4 steps, and one adult male singer S1.
+`lip_sync` for every shot, {profile["megapixels"]} megapixels, {profile["aspect_ratio"]},
+{profile["engine"]} {profile["turbo_profile"]} with exactly {profile["steps"]} steps, and one adult male singer S1.
 The audio chunks are 5-10 seconds and are the timing authority. Use an approved opening frame for shot 1 and
 sequential last-frame opening continuity for later shots unless the treatment explicitly marks a hard cut.
 Write prompts in English using the H3 fields integrated_multimodal_description, overall_soundscape, and
