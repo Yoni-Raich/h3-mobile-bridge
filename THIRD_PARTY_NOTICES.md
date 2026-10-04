@@ -1,15 +1,16 @@
 # Third-party notices
 
 The MIT license in `LICENSE` covers the bridge code in this repository only.
-The following files are downloaded or cloned into `.runtime`; they are not
-stored in this Git repository. Each user must review the current license and
-terms before downloading them.
+The following files are downloaded or cloned into configured runtime/model
+directories; they are not stored in this Git repository. Each user must review
+the current license and terms before downloading them.
 
 | Component | Pinned source | License or terms |
 |---|---|---|
 | ComfyUI | `Comfy-Org/ComfyUI`, pinned in `manifests/dependencies.json` | [ComfyUI license](https://github.com/comfyanonymous/ComfyUI/blob/master/LICENSE) |
 | MiniMax H3 weights | `Comfy-Org/MiniMax-H3` | [Hugging Face model card and terms](https://huggingface.co/Comfy-Org/MiniMax-H3) |
 | MiniMax H3 Turbo LoRA | `larryvrh/MiniMax-H3-Turbo-Lora` | [Upstream model card](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) |
+| Qwen Image 2.1 Viggle Turbo GGUF | `Abiray/Qwen-Image-2.1-viggle-4-steps-turbo-GGUF` (quantized Viggle checkpoint) | [Qwen Research License](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) |
 | Spectrum node | `xmarre/ComfyUI-Spectrum-MiniMax-H3` | [Upstream repository](https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3) |
 | ClipProj node and weights | `nicolab28/ComfyUI-ClipProj` and linked model sources | [Upstream repository](https://github.com/nicolab28/ComfyUI-ClipProj) |
 | Official workflows | `Comfy-Org/workflow_templates` | [ComfyUI repository terms](https://github.com/comfyanonymous/ComfyUI/blob/master/LICENSE) |

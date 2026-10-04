@@ -114,12 +114,17 @@ MODELS = _as_path(
 # user, input, output, and temp locations as a direct ComfyUI launch.
 INPUT = _as_path(comfy_config.get("input"), COMFY_CODE / "input", relative_to=COMFY_CODE)
 OUTPUT = _as_path(comfy_config.get("output"), COMFY_CODE / "output", relative_to=COMFY_CODE)
+showcase_name = str(app_config.get("showcase_video") or "")
+if showcase_name and (Path(showcase_name).name != showcase_name or not showcase_name.endswith(".mp4")):
+    raise RuntimeError("app.showcase_video must be an MP4 filename inside the output directory")
+SHOWCASE_VIDEO = OUTPUT / showcase_name if showcase_name else None
 TEMP = _as_path(comfy_config.get("temp"), COMFY_CODE / "temp", relative_to=COMFY_CODE)
 USER = _as_path(comfy_config.get("user"), COMFY_CODE / "user", relative_to=COMFY_CODE)
 SPECTRUM_NODE_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-Spectrum-MiniMax-H3"
 CLIPPROJ_NODE_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-ClipProj"
 AUDIOLOCK_NODE_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-H3-NativeAudioLock"
-CLIPPROJ_NODE_COMMIT = "ca9b325e83cb02cb5e652570569c6f3f20fee342"
+SLA_NODE_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-PlagueKind-Nodes-only-sparse"
+CLIPPROJ_NODE_COMMIT = str(comfy_config.get("clipproj_node_revision") or "ca9b325e83cb02cb5e652570569c6f3f20fee342")
 SPECTRUM_NODE_VERSION = "v0.2.5"
 TURBO_LORAS = {
     "v1": "minimax_h3_turbo_4step_ema_ckpt850.safetensors",
@@ -131,9 +136,23 @@ FL2VA_MODEL = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
 REF2VA_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 CLIPPROJ_TEXT_ENCODER = "qwen3vl_4b_fp8_scaled.safetensors"
-CLIPPROJ_PROJECTION = "h3_qwen3vl_4b_tap24.safetensors"
+CLIPPROJ_PROJECTION = str(comfy_config.get("clipproj_projection") or "h3_qwen3vl_4b_tap24.safetensors")
+if Path(CLIPPROJ_PROJECTION).name != CLIPPROJ_PROJECTION or not CLIPPROJ_PROJECTION.endswith(".safetensors"):
+    raise RuntimeError("comfy.clipproj_projection must be a safetensors filename")
 VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
+FUSED_MODEL = "minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors"
+FUSED_VIDEO_VAE = "minimax_h3_video_vae_int8_convrot.safetensors"
+POST_FLOW_MODEL = "DasiwaMinimaxH3_dasiwaHybridV2_3203130.safetensors"
+POST_FLOW_VIDEO_VAE = FUSED_VIDEO_VAE
+POST_FLOW_TURBO_LORA = "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors"
+POST_FLOW_REALISM_LORA = "h3-realism-people-t2v-i2v-r2v.safetensors"
+POST_FLOW_LMS_LORA = "minimax_h3_lms_v1.0_r64.safetensors"
+COMFYUI_GGUF_DIR = COMFY_CODE / "custom_nodes" / "ComfyUI-GGUF"
+QWEN_IMAGE_MODEL = "qwen-image-2.1-Q4_K_M.gguf"
+QWEN_IMAGE_TURBO_MODEL = "qwen_image_2.1_turbo_Q4_K_M.gguf"
+QWEN_IMAGE_TEXT_ENCODER = "qwen3vl_8b_int8_convrot.safetensors"
+QWEN_IMAGE_VAE = "qwen_image_2.1_vae_bf16.safetensors"
 
 TAILSCALE_ENABLED = bool(tailscale_config.get("enabled", True))
 TAILSCALE_SCOPE = str(tailscale_config.get("scope", "tailnet"))

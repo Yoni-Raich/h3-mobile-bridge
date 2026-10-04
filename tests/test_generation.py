@@ -70,6 +70,11 @@ class GenerationSettingsTests(unittest.TestCase):
         settings = normalize_generation_settings("text", "turbo", 6, turbo_profile="v4")
         self.assertEqual(settings.turbo_profile, "v4")
 
+    def test_engines_without_builders_are_rejected_before_queueing(self):
+        for engine in ("fused", "post"):
+            with self.subTest(engine=engine), self.assertRaisesRegex(ValueError, "no workflow builder"):
+                normalize_generation_settings("text", engine)
+
 
 class WorkflowTests(unittest.TestCase):
     def test_turbo_uses_selected_steps_and_resolution(self):

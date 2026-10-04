@@ -145,6 +145,17 @@
       "bytes": 5510600,
       "sha256": "30eb3c2cc7fb6b470d9717ff840d359313ac27cd64b705e32da1baa10f72d6a8",
       "license_reference": "https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo"
+    },
+    {
+      "name": "Qwen Image 2.1 Viggle Turbo GGUF Q4_K_M",
+      "source_repository": "https://huggingface.co/Abiray/Qwen-Image-2.1-viggle-4-steps-turbo-GGUF",
+      "revision": "0016110b769f6625b92098ab9e3f4906dba367f6",
+      "source_path": "qwen_image_2.1_turbo_Q4_K_M.gguf",
+      "filename": "qwen_image_2.1_turbo_Q4_K_M.gguf",
+      "target_directory": "diffusion_models",
+      "bytes": 4189346592,
+      "sha256": "b44de26eb38b5a62d8efc0f97e842a17c00c0cd70552e1b22ca110beb89d2196",
+      "license_reference": "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
     }
   ]
 }

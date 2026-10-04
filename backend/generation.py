@@ -21,6 +21,8 @@ def parse_resolution(value: str) -> tuple[int, int]:
 TURBO_STEP_RANGE = (4, 12)
 STANDARD_STEP_RANGE = (8, 30)
 SPECTRUM_STEP_RANGE = (8, 30)
+FUSED_STEP_RANGE = (4, 4)
+POST_FLOW_STEP_RANGE = (6, 8)
 
 
 @dataclass(frozen=True)
@@ -48,7 +50,7 @@ def normalize_generation_settings(
 ) -> GenerationSettings:
     resolved_engine = engine or ("standard" if mode in ("reference", "lip_sync") else "turbo")
     if resolved_engine not in ("turbo", "standard", "spectrum"):
-        raise ValueError("Engine must be turbo, standard or spectrum")
+        raise ValueError("This build supports Turbo, Standard and Spectrum. Fused and Post Flow have no workflow builder.")
     if resolved_engine == "turbo":
         step_min, step_max, default_steps = (*TURBO_STEP_RANGE, 4)
     elif resolved_engine == "spectrum":
@@ -90,6 +92,8 @@ def normalize_generation_settings(
         allow_experimental_lip_sync_turbo and resolved_engine == "turbo"
     ):
         raise ValueError("Lip-sync uses the Standard engine")
+    if mode == "reference" and resolved_engine == "fused":
+        raise ValueError("Fused + SLA is available for text and I2V modes, not reference mode")
     if mode == "lip_sync" and resolved_encoder != "native":
         raise ValueError("Lip-sync uses the native 32B encoder")
     resolved_turbo_profile = turbo_profile or "v1"

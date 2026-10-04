@@ -115,7 +115,10 @@ class ProductionStudioTests(unittest.TestCase):
         body = {"codex_runtime": "codex", "codex_model": "gpt-5.6-sol", "codex_effort": "high",
                 "agy_runtime": "agy", "agy_model": "gemini-3.1-pro-high", "agy_effort": "high"}
         self.assertEqual(self.client.patch("/api/settings/agents", json=body).status_code, 403)
-        response = self.client.patch("/api/settings/agents", json=body, headers={"X-CSRF-Token": self.token})
+        with patch("backend.main.model_catalog", return_value={
+            "codex": [{"id": body["codex_model"]}], "agy": [{"id": body["agy_model"]}],
+        }):
+            response = self.client.patch("/api/settings/agents", json=body, headers={"X-CSRF-Token": self.token})
         self.assertEqual(response.status_code, 200, response.text)
 
     def test_shot_plan_attempts_and_artifacts_are_exposed_without_local_paths(self):

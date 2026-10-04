@@ -1,10 +1,12 @@
 import json
+import secrets
 import sqlite3
 import statistics
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from .config import DB_PATH
+from .config import DB_PATH, INPUT
 
 
 def now_iso() -> str:
@@ -52,6 +54,7 @@ def _create_jobs_table(db):
         reference_audio_path TEXT,
         reference_audio_name TEXT,
         no_audio INTEGER NOT NULL DEFAULT 0,
+        post_lms INTEGER NOT NULL DEFAULT 0,
         first_frame_path TEXT,
         first_frame_name TEXT,
         last_frame_path TEXT,
@@ -125,6 +128,39 @@ def _create_sequence_tables(db):
         FOREIGN KEY(sequence_id) REFERENCES sequences(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_sequence_items_job ON sequence_items(job_id);
+    """)
+
+
+def _create_image_jobs_table(db):
+    db.executescript("""
+    CREATE TABLE IF NOT EXISTS image_jobs (
+        id TEXT PRIMARY KEY,
+        prompt TEXT NOT NULL,
+        negative_prompt TEXT,
+        model_profile TEXT NOT NULL DEFAULT 'standard' CHECK(model_profile IN ('standard','viggle_turbo')),
+        aspect_ratio TEXT NOT NULL DEFAULT '1:1',
+        width INTEGER NOT NULL DEFAULT 1024,
+        height INTEGER NOT NULL DEFAULT 1024,
+        steps INTEGER NOT NULL DEFAULT 25,
+        cfg REAL NOT NULL DEFAULT 2.5,
+        seed TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('queued','starting','running','completed','failed','canceled')),
+        position INTEGER NOT NULL DEFAULT 0,
+        progress REAL NOT NULL DEFAULT 0,
+        step INTEGER NOT NULL DEFAULT 0,
+        total_steps INTEGER NOT NULL DEFAULT 0,
+        reference_images_json TEXT,
+        output_path TEXT,
+        prompt_id TEXT,
+        error TEXT,
+        eta_seconds REAL,
+        metrics_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_image_jobs_queue ON image_jobs(status, position);
     """)
 
 
@@ -217,6 +253,14 @@ def init_db():
         elif not table:
             _create_jobs_table(db)
         _create_sequence_tables(db)
+        _create_image_jobs_table(db)
+        img_cols = {row[1] for row in db.execute("PRAGMA table_info(image_jobs)").fetchall()}
+        if "eta_seconds" not in img_cols:
+            db.execute("ALTER TABLE image_jobs ADD COLUMN eta_seconds REAL")
+        if "metrics_json" not in img_cols:
+            db.execute("ALTER TABLE image_jobs ADD COLUMN metrics_json TEXT")
+        if "model_profile" not in img_cols:
+            db.execute("ALTER TABLE image_jobs ADD COLUMN model_profile TEXT NOT NULL DEFAULT 'standard' CHECK(model_profile IN ('standard','viggle_turbo'))")
         db.execute(
             """
             UPDATE jobs
@@ -404,3 +448,148 @@ def historical_generation_seconds(
         if seconds > 0:
             values.append(seconds)
     return float(statistics.median(values)) if values else None
+
+
+def _image_job_row_dict(row):
+    if not row:
+        return None
+    item = dict(row)
+    if item.get("reference_images_json"):
+        try:
+            item["reference_images"] = json.loads(item["reference_images_json"])
+        except (json.JSONDecodeError, TypeError):
+            item["reference_images"] = []
+    else:
+        item["reference_images"] = []
+    if item.get("output_path"):
+        item["image_url"] = f"/api/image-jobs/{item['id']}/image"
+    else:
+        item["image_url"] = None
+
+    raw_metrics = json.loads(item.pop("metrics_json", None) or "{}")
+    item["metrics"] = {key: raw_metrics[key] for key in ("generation_seconds", "peak_gpu") if key in raw_metrics}
+    gen_seconds = item["metrics"].get("generation_seconds")
+    if gen_seconds is None and item.get("status") == "completed" and item.get("finished_at") and item.get("started_at"):
+        try:
+            start_dt = datetime.fromisoformat(item["started_at"])
+            end_dt = datetime.fromisoformat(item["finished_at"])
+            gen_seconds = max(1.0, round((end_dt - start_dt).total_seconds(), 1))
+            item["metrics"]["generation_seconds"] = gen_seconds
+        except Exception:
+            pass
+    item["generation_seconds"] = gen_seconds
+    return item
+
+
+def next_image_job_position() -> int:
+    with connect() as db:
+        row = db.execute("SELECT MAX(position) FROM image_jobs WHERE status='queued'").fetchone()
+        return (row[0] + 1) if row and row[0] is not None else 0
+
+
+ASPECT_RATIO_DIMENSIONS = {
+    "1:1": (1024, 1024),
+    "16:9": (1344, 768),
+    "9:16": (768, 1344),
+    "4:3": (1152, 896),
+    "3:4": (896, 1152),
+}
+
+
+def create_image_job(
+    prompt: str,
+    negative_prompt: str | None = None,
+    aspect_ratio: str = "1:1",
+    width: int | None = None,
+    height: int | None = None,
+    steps: int = 25,
+    cfg: float = 4.0,
+    seed: str | int | None = None,
+    reference_images: list[str] | None = None,
+    model_profile: str = "standard",
+    job_id: str | None = None,
+) -> dict:
+    job_id = job_id or uuid.uuid4().hex[:12]
+    if width is None or height is None:
+        dims = ASPECT_RATIO_DIMENSIONS.get(aspect_ratio, (1024, 1024))
+        width = width or dims[0]
+        height = height or dims[1]
+    if seed is None:
+        seed = secrets.randbits(64)
+    now = now_iso()
+    ref_json = json.dumps(reference_images) if reference_images else None
+    position = next_image_job_position()
+    with connect() as db:
+        db.execute(
+            """
+            INSERT INTO image_jobs (
+                id, prompt, negative_prompt, model_profile, aspect_ratio, width, height, steps, cfg, seed,
+                status, position, progress, step, total_steps, reference_images_json,
+                output_path, prompt_id, error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, 0, ?, ?, NULL, NULL, NULL, ?, ?)
+            """,
+            (
+                job_id, prompt, negative_prompt, model_profile, aspect_ratio, width, height, steps, cfg, str(seed),
+                position, steps, ref_json, now, now
+            ),
+        )
+    return get_image_job(job_id)
+
+
+def get_image_job(job_id: str, public: bool = True):
+    with connect() as db:
+        row = db.execute("SELECT * FROM image_jobs WHERE id=?", (job_id,)).fetchone()
+        return _image_job_row_dict(row) if public else (dict(row) if row else None)
+
+
+def list_image_jobs(limit: int = 100) -> list[dict]:
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT * FROM image_jobs
+            ORDER BY
+                CASE status WHEN 'running' THEN 0 WHEN 'starting' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                CASE WHEN status='queued' THEN position END ASC,
+                CASE WHEN status NOT IN ('queued','starting','running') THEN COALESCE(finished_at, created_at) END DESC,
+                created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [_image_job_row_dict(r) for r in rows]
+
+
+def update_image_job(job_id: str, **values):
+    if not values:
+        return
+    values["updated_at"] = now_iso()
+    if "metrics" in values:
+        values["metrics_json"] = json.dumps(values.pop("metrics"), ensure_ascii=False)
+    assignments = ",".join(f"{key}=?" for key in values)
+    with connect() as db:
+        db.execute(f"UPDATE image_jobs SET {assignments} WHERE id=?", (*values.values(), job_id))
+
+
+def delete_image_job(job_id: str):
+    with connect() as db:
+        row = db.execute("SELECT output_path, reference_images_json FROM image_jobs WHERE id=?", (job_id,)).fetchone()
+        db.execute("DELETE FROM image_jobs WHERE id=?", (job_id,))
+    if not row:
+        return
+    if row["output_path"]:
+        from pathlib import Path
+        Path(row["output_path"]).unlink(missing_ok=True)
+    if row["reference_images_json"]:
+        try:
+            ref_names = json.loads(row["reference_images_json"])
+            for name in ref_names:
+                ref_path = INPUT / name
+                with connect() as db:
+                    rem = db.execute(
+                        "SELECT COUNT(*) FROM image_jobs WHERE reference_images_json LIKE ?",
+                        (f"%{name}%",),
+                    ).fetchone()[0]
+                if rem == 0:
+                    ref_path.unlink(missing_ok=True)
+        except Exception:
+            pass

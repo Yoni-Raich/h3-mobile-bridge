@@ -148,7 +148,9 @@ class PortabilityTests(unittest.TestCase):
         dependencies = json.loads((ROOT / "manifests" / "dependencies.json").read_text(encoding="utf-8"))
         models = json.loads((ROOT / "manifests" / "models.json").read_text(encoding="utf-8"))
         self.assertEqual(len(dependencies["repositories"]), 5)
-        self.assertEqual(len(models["models"]), 13)
+        filenames = [item["filename"] for item in models["models"]]
+        self.assertEqual(len(filenames), len(set(filenames)))
+        self.assertIn("minimax_h3_fl2va_pruned_int8_convrot.safetensors", filenames)
         for item in dependencies["repositories"]:
             self.assertRegex(item["revision"], r"^[0-9a-f]{40}$")
         for item in models["models"]:

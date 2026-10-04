@@ -14,13 +14,13 @@
     {
       "name": "ComfyUI",
       "url": "https://github.com/Comfy-Org/ComfyUI.git",
-      "revision": "2a68ce33b4c9ea6ee4283e618a74560cefb32694",
+      "revision": "12d5279438bfefc058a269eae805ceab6047777f",
       "target": ".runtime/comfyui"
     },
     {
       "name": "MiniMax H3 Turbo node",
       "url": "https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git",
-      "revision": "55fee864dd7b2976b1c4ce3c3d5f7968f181409f",
+      "revision": "4274783a23afcfdbea3b4876cb79effd6c510785",
       "target": ".runtime/comfyui/custom_nodes/ComfyUI-MiniMax-H3-Turbo"
     },
     {
@@ -38,7 +38,7 @@
     {
       "name": "Official workflow templates",
       "url": "https://github.com/Comfy-Org/workflow_templates.git",
-      "revision": "2b7f823136606344f0bccce249898d771b809aa1",
+      "revision": "65d9869fb6b9639caba98560342aae9d38cebc25",
       "target": ".runtime/workflow_templates"
     }
   ],

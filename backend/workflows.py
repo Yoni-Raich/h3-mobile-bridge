@@ -2,7 +2,8 @@ from copy import deepcopy
 
 from .config import (AUDIO_VAE, CLIPPROJ_PROJECTION, CLIPPROJ_TEXT_ENCODER,
                      FL2VA_MODEL, REF2VA_MODEL, REF2VA_TURBO_LORA, TEXT_ENCODER, TURBO_LORAS,
-                     VIDEO_VAE)
+                     VIDEO_VAE, QWEN_IMAGE_MODEL, QWEN_IMAGE_TURBO_MODEL,
+                     QWEN_IMAGE_TEXT_ENCODER, QWEN_IMAGE_VAE)
 
 FPS = 24
 H3_DURATION_EXPRESSION = "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17"
@@ -419,4 +420,118 @@ def reference_workflow(
         })
     else:
         nodes["123"] = {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "res_multistep"}}
+    return deepcopy(nodes)
+
+
+def qwen_image_workflow(
+    prompt: str,
+    negative_prompt: str = "",
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 25,
+    cfg: float = 2.5,
+    seed: int = 0,
+    reference_images: list[str] | None = None,
+    prefix: str = "qwen_image",
+    model_profile: str = "standard",
+) -> dict:
+    """Build ComfyUI execution graph for standard or Viggle Turbo Qwen-Image-2.1 GGUF.
+    Supports both text-to-image and multi-reference image conditioning.
+    """
+    if model_profile not in {"standard", "viggle_turbo"}:
+        raise ValueError(f"Unsupported Qwen Image model profile: {model_profile}")
+    if model_profile == "viggle_turbo" and (steps != 4 or cfg != 1.0 or negative_prompt.strip()):
+        raise ValueError("Viggle Turbo requires 4 steps, CFG 1.0, and an empty negative prompt")
+    model_name = QWEN_IMAGE_TURBO_MODEL if model_profile == "viggle_turbo" else QWEN_IMAGE_MODEL
+    ref_imgs = reference_images or []
+
+    text_encode_inputs = {
+        "clip": ["2", 0],
+        "prompt": prompt,
+        "negative_prompt": negative_prompt or "",
+        "vae": ["3", 0],
+        "resolution": max(width, height),
+    }
+
+    nodes = {
+        # 1. Load Diffusion GGUF model
+        "1": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {
+                "unet_name": model_name,
+            },
+        },
+        # 2. Load Text Encoder
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+                "clip_name": QWEN_IMAGE_TEXT_ENCODER,
+                "type": "qwen_image",
+                "device": "default",
+            },
+        },
+        # 3. Load VAE
+        "3": {
+            "class_type": "VAELoader",
+            "inputs": {
+                "vae_name": QWEN_IMAGE_VAE,
+            },
+        },
+        # 4. Text & Reference Encode
+        "4": {
+            "class_type": "TextEncodeQwenImage21",
+            "inputs": text_encode_inputs,
+        },
+        # 6. Latent representation
+        "6": {
+            "class_type": "EmptyLatentImage",
+            "inputs": {
+                "width": width,
+                "height": height,
+                "batch_size": 1,
+            },
+        },
+        # 8. KSampler
+        "8": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["1", 0],
+                "positive": ["4", 0],
+                "negative": ["4", 1],
+                "latent_image": ["6", 0],
+                "seed": seed,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+        # 9. VAE Decode
+        "9": {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": ["8", 0],
+                "vae": ["3", 0],
+            },
+        },
+        # 10. Save Image
+        "10": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "images": ["9", 0],
+                "filename_prefix": prefix,
+            },
+        },
+    }
+
+    if ref_imgs:
+        for i, img_name in enumerate(ref_imgs[:3]):
+            node_id = str(11 + i)
+            nodes[node_id] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": img_name},
+            }
+            text_encode_inputs[f"images.image_{i + 1}"] = [node_id, 0]
+
     return deepcopy(nodes)

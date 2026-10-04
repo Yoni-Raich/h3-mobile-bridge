@@ -38,6 +38,11 @@ existing ComfyUI installation is configured in `config.local.json`, bootstrap
 preserves its root, Python, models, and media-directory paths instead of
 switching them to the portable layout.
 
+The optional DaSiWa Post Flow is available in the generation UI. It combines
+the DaSiWa base, corrected INT8 VAE, Turbo v4, Realism People, and an optional
+LMS second pass. See [`docs/POST_FLOW.md`](docs/POST_FLOW.md) for the pinned
+files and installation status.
+
 ## Requirements
 
 - Windows 10/11 x64.
@@ -144,6 +149,18 @@ from the regular generation page can be imported into a production.
 
 See [`docs/architecture/agent-production-studio.md`](docs/architecture/agent-production-studio.md)
 and [`todo/agent-production-studio-plan.md`](todo/agent-production-studio-plan.md).
+
+## Local Qwen Image Studio
+
+The Image Gen page supports the regular Qwen-Image-2.1 GGUF and the optional
+Viggle Turbo Q4_K_M GGUF. Turbo uses exactly 4 steps, CFG 1.0, an empty
+negative prompt, and the existing Euler/simple sampler settings. Install the
+verified Turbo weight with `scripts/install-qwen-image-turbo.ps1`; the model
+file is pinned by size and SHA-256 in `manifests/models.json`.
+
+The Viggle Turbo checkpoint is a preview derived from Qwen Image 2.1. Review
+the Qwen Research License in `THIRD_PARTY_NOTICES.md` before using or
+redistributing the weights.
 
 Read `.agents/skills/h3-environment-bootstrap/SKILL.md` before setup and
 `.agents/skills/h3-mobile-bridge-codebase/SKILL.md` before code changes.

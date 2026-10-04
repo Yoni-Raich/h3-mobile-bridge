@@ -26,15 +26,23 @@ from .config import (ALLOWED_HOSTS, APP_HOST, APP_PORT, APP_VERSION,
                      CODEX_DEFAULT_EFFORT, CODEX_DEFAULT_MODEL, CODEX_DEFAULT_RUNTIME,
                      AUDIOLOCK_NODE_DIR, MANAGED_SKILLS, PRODUCTIONS,
                      REF2VA_MODEL, REF2VA_TURBO_LORA, REFERENCE_10S_MARKER, ROOT,
-                     SPECTRUM_NODE_DIR, SPECTRUM_NODE_VERSION, TURBO_LORAS)
+                     SPECTRUM_NODE_DIR, SPECTRUM_NODE_VERSION, TURBO_LORAS,
+                     FUSED_MODEL, FUSED_VIDEO_VAE, SLA_NODE_DIR,
+                     POST_FLOW_MODEL, POST_FLOW_VIDEO_VAE, POST_FLOW_TURBO_LORA,
+                     POST_FLOW_REALISM_LORA, POST_FLOW_LMS_LORA,
+                     COMFYUI_GGUF_DIR, QWEN_IMAGE_MODEL, QWEN_IMAGE_TURBO_MODEL,
+                     QWEN_IMAGE_TEXT_ENCODER, QWEN_IMAGE_VAE, SHOWCASE_VIDEO)
 from .db import (connect, get_job, get_sequence, init_db, list_jobs,
-                 list_sequences, next_position, now_iso)
+                 list_sequences, next_position, now_iso,
+                 create_image_job, delete_image_job, get_image_job,
+                 list_image_jobs, update_image_job)
 from .generation import normalize_generation_settings
 from .music_video import normalize_production_profile
 from .library import (assign_asset, create_folder, create_project, delete_folder,
                       delete_project, init_library_db, list_library, remove_assignment,
                       rename_asset, rename_folder, rename_project, validate_location)
 from .security import COOKIE, new_token, require_csrf
+from .system_status import system_status
 from .agents import agent_health, model_catalog
 from .production import production_orchestrator
 from .production_db import (add_config_revision, add_event, add_message, add_reference,
@@ -282,7 +290,33 @@ def public_health():
         "clipproj_version": CLIPPROJ_NODE_COMMIT[:12],
         "audio_lock_ready": audio_lock_ready(),
         "turbo_v4_ready": (MODELS / "loras" / TURBO_LORAS["v4"]).exists(),
+        "fused_sla_ready": False,
+        "fused_sla_models_present": (
+            (MODELS / "diffusion_models" / FUSED_MODEL).exists()
+            and (MODELS / "vae" / FUSED_VIDEO_VAE).exists()
+            and (SLA_NODE_DIR / "__init__.py").exists()
+        ),
+        "post_flow_ready": False,
+        "post_flow_models_present": all((
+            (MODELS / "diffusion_models" / POST_FLOW_MODEL).exists(),
+            (MODELS / "vae" / POST_FLOW_VIDEO_VAE).exists(),
+            (MODELS / "loras" / POST_FLOW_TURBO_LORA).exists(),
+            (MODELS / "loras" / POST_FLOW_REALISM_LORA).exists(),
+        )),
+        "post_lms_ready": False,
         "reference_turbo_ready": (MODELS / "loras" / REF2VA_TURBO_LORA).exists(),
+        "qwen_image_ready": all((
+            (MODELS / "diffusion_models" / QWEN_IMAGE_MODEL).exists(),
+            (MODELS / "text_encoders" / QWEN_IMAGE_TEXT_ENCODER).exists(),
+            (MODELS / "vae" / QWEN_IMAGE_VAE).exists(),
+            (COMFYUI_GGUF_DIR / "nodes.py").exists(),
+        )),
+        "qwen_image_turbo_ready": all((
+            (MODELS / "diffusion_models" / QWEN_IMAGE_TURBO_MODEL).exists(),
+            (MODELS / "text_encoders" / QWEN_IMAGE_TEXT_ENCODER).exists(),
+            (MODELS / "vae" / QWEN_IMAGE_VAE).exists(),
+            (COMFYUI_GGUF_DIR / "nodes.py").exists(),
+        )),
         "active_job": worker.current_job,
         "active_sequence": worker.current_sequence,
         "gpu_conflict": conflict,
@@ -293,6 +327,23 @@ def public_health():
 @app.get("/api/health")
 async def health():
     return public_health()
+
+
+@app.get("/api/system/status")
+async def hardware_status():
+    return await system_status()
+
+
+@app.get("/api/showcase")
+async def showcase():
+    return {"video_url": "/api/showcase/video" if SHOWCASE_VIDEO and SHOWCASE_VIDEO.is_file() else None}
+
+
+@app.get("/api/showcase/video")
+async def showcase_video():
+    if not SHOWCASE_VIDEO or not SHOWCASE_VIDEO.is_file():
+        raise HTTPException(404, "No showcase video configured")
+    return FileResponse(SHOWCASE_VIDEO, media_type="video/mp4", filename=SHOWCASE_VIDEO.name)
 
 
 @app.get("/api/session")
@@ -369,7 +420,7 @@ async def lock_system(request: Request):
 
 @app.get("/api/jobs")
 async def jobs():
-    return {"jobs": list_jobs(), "sequences": list_sequences(), "library": list_library(), **public_health()}
+    return {"jobs": list_jobs(), "image_jobs": list_image_jobs(), "sequences": list_sequences(), "library": list_library(), **public_health()}
 
 
 @app.get("/api/library")
@@ -455,7 +506,7 @@ async def rename_library_asset(source_type: str, source_id: str, request: Reques
 async def events(request: Request):
     async def stream():
         while not await request.is_disconnected():
-            payload = {"jobs": list_jobs(), "sequences": list_sequences(), "library": list_library(), **public_health()}
+            payload = {"jobs": list_jobs(), "image_jobs": list_image_jobs(), "sequences": list_sequences(), "library": list_library(), **public_health()}
             yield "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
             await asyncio.sleep(4)
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
@@ -1387,6 +1438,7 @@ async def create_jobs(
     resolution: str | None = Form(None),
     megapixels: float | None = Form(None), aspect_ratio: str | None = Form(None),
     encoder: str | None = Form(None), turbo_profile: str | None = Form(None),
+    post_lms: bool = Form(False),
     experimental_turbo_lip_sync: bool = Form(False),
     batch: bool = Form(False),
     connected: bool = Form(False), image: UploadFile | None = File(None),
@@ -1418,8 +1470,19 @@ async def create_jobs(
         raise HTTPException(400, str(exc)) from exc
     if generation.encoder == "clipproj" and not clipproj_ready():
         raise HTTPException(409, "ClipProj is not fully installed yet")
+    if generation.engine == "fused" and not public_health()["fused_sla_ready"]:
+        raise HTTPException(409, "Fused + SLA is not fully installed yet")
+    health = public_health()
+    if generation.engine == "post" and not health["post_flow_ready"]:
+        raise HTTPException(409, "Post Flow is not fully installed yet")
+    if post_lms and generation.engine != "post":
+        raise HTTPException(400, "LMS second pass is available only with Post Flow")
+    if post_lms and not health["post_lms_ready"]:
+        raise HTTPException(409, "LMS second pass is not installed yet")
     if connected and (not batch or mode != "text"):
         raise HTTPException(400, "Connected generation requires multiple prompts in text mode")
+    if connected and generation.engine == "post":
+        raise HTTPException(400, "Connected sequences are not available with Post Flow")
     if mode == "text" and any((image, reference_audio, first_frame, last_frame)):
         raise HTTPException(400, "Text mode does not accept reference media")
     if mode == "lip_sync" and (image or reference_images or reference_videos or reference_audio or last_frame):
@@ -1550,15 +1613,15 @@ async def create_jobs(
             else:
                 db.execute("""INSERT INTO jobs
                   (id,prompt,mode,duration,engine,turbo_profile,encoder,steps,width,height,megapixels,aspect_ratio,seed,status,position,input_path,input_name,
-                   reference_images_json,reference_videos_json,no_audio,
+                  reference_images_json,reference_videos_json,no_audio,post_lms,
                    reference_audio_path,reference_audio_name,
                    first_frame_path,first_frame_name,last_frame_path,last_frame_name,
                    created_at,updated_at)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                   (job_id, text, mode, duration, generation.engine, generation.turbo_profile, generation.encoder,
                    generation.steps, generation.width, generation.height, generation.megapixels, generation.aspect_ratio,
                    str(secrets.randbits(64)), position + index,
-                   input_path, input_name, json.dumps(reference_image_names), json.dumps(reference_video_names), int(no_audio),
+                   input_path, input_name, json.dumps(reference_image_names), json.dumps(reference_video_names), int(no_audio), int(post_lms),
                    reference_audio_path, reference_audio_name,
                    first_frame_path, first_frame_name,
                    last_frame_path, last_frame_name, now, now))
@@ -1759,11 +1822,19 @@ async def delete_sequence(request: Request, sequence_id: str):
 
 
 @app.get("/api/jobs/{job_id}/video")
-async def video(job_id: str):
+async def video(job_id: str, raw: bool = False):
     job = get_job(job_id, public=False)
     if not job or job["status"] != "completed" or not job.get("output_path"):
         raise HTTPException(404, "Video not found")
     path = Path(job["output_path"])
+    if not raw:
+        for cand in [
+            path.with_name(f"{path.stem}_1080p.mp4"),
+            path.with_name(f"{path.stem}_enhanced.mp4"),
+            path.with_name(f"{path.stem}__1080p.mp4"),
+        ]:
+            if cand.exists():
+                return FileResponse(cand, media_type="video/mp4", filename=cand.name)
     if not path.exists():
         raise HTTPException(404, "Video file is missing")
     return FileResponse(path, media_type="video/mp4", filename=path.name)
@@ -1786,6 +1857,109 @@ async def sequence_video(sequence_id: str):
     if not path.exists():
         raise HTTPException(404, "Joined video file is missing")
     return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+@app.get("/api/image-jobs")
+async def get_image_jobs():
+    return {
+        "image_jobs": list_image_jobs(),
+        "qwen_image_ready": public_health()["qwen_image_ready"],
+        "qwen_image_turbo_ready": public_health()["qwen_image_turbo_ready"],
+    }
+
+
+@app.post("/api/image-jobs")
+async def create_new_image_job(
+    request: Request,
+    prompt: str = Form(...),
+    negative_prompt: str = Form(""),
+    model_profile: str = Form("standard"),
+    aspect_ratio: str = Form("1:1"),
+    steps: int = Form(25),
+    cfg: float = Form(4.0),
+    seed: int | None = Form(None),
+    reference_images: list[UploadFile] = File(default=[]),
+):
+    require_csrf(request)
+    model_profile = model_profile.strip().lower()
+    if model_profile not in {"standard", "viggle_turbo"}:
+        raise HTTPException(400, "Unknown Qwen Image model profile")
+    health = public_health()
+    if model_profile == "viggle_turbo" and not health["qwen_image_turbo_ready"]:
+        raise HTTPException(409, "Qwen Image Viggle Turbo GGUF is not installed yet")
+    if model_profile == "standard" and not health["qwen_image_ready"]:
+        raise HTTPException(409, "Qwen-Image-2.1 models are not installed yet")
+    clean_prompt = prompt.strip()
+    if not clean_prompt:
+        raise HTTPException(400, "Prompt cannot be empty")
+    valid_ratios = {"1:1", "16:9", "9:16", "4:3", "3:4"}
+    if aspect_ratio not in valid_ratios:
+        raise HTTPException(400, f"Invalid aspect ratio. Must be one of: {', '.join(sorted(valid_ratios))}")
+    if model_profile == "viggle_turbo":
+        steps = 4
+        cfg = 1.0
+        negative_prompt = ""
+    elif steps < 5 or steps > 100:
+        raise HTTPException(400, "Steps must be between 5 and 100")
+    if model_profile == "standard" and (cfg < 1.0 or cfg > 20.0):
+        raise HTTPException(400, "CFG must be between 1.0 and 20.0")
+
+    saved_paths: list[str] = []
+    saved_ref_names: list[str] = []
+    try:
+        for ref_img in reference_images:
+            path, name = await save_image(ref_img)
+            if path and name:
+                saved_paths.append(path)
+                saved_ref_names.append(name)
+    except Exception:
+        for path in saved_paths:
+            Path(path).unlink(missing_ok=True)
+        raise
+
+    job = create_image_job(
+        prompt=clean_prompt,
+        negative_prompt=negative_prompt.strip(),
+        model_profile=model_profile,
+        aspect_ratio=aspect_ratio,
+        steps=steps,
+        cfg=cfg,
+        seed=seed,
+        reference_images=saved_ref_names,
+    )
+    worker.wake.set()
+    return job
+
+
+@app.get("/api/image-jobs/{job_id}/image")
+async def get_image_job_file(job_id: str):
+    job = get_image_job(job_id, public=False)
+    if not job or not job.get("output_path"):
+        raise HTTPException(404, "Image not found")
+    path = Path(job["output_path"])
+    if not path.exists():
+        raise HTTPException(404, "Image file missing on disk")
+    return FileResponse(str(path), media_type="image/png")
+
+
+@app.post("/api/image-jobs/{job_id}/cancel")
+async def cancel_image_job_route(request: Request, job_id: str):
+    require_csrf(request)
+    if not await worker.cancel(job_id):
+        raise HTTPException(409, "Image job cannot be canceled")
+    return {"ok": True}
+
+
+@app.delete("/api/image-jobs/{job_id}")
+async def delete_image_job_route(request: Request, job_id: str):
+    require_csrf(request)
+    job = get_image_job(job_id, public=False)
+    if not job:
+        raise HTTPException(404, "Image job not found")
+    if job["status"] in ("running", "starting"):
+        raise HTTPException(409, "Cancel the running image job first")
+    delete_image_job(job_id)
+    return {"ok": True}
 
 
 dist = ROOT / "dist"
