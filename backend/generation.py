@@ -97,12 +97,14 @@ def normalize_generation_settings(
     if mode == "lip_sync" and resolved_encoder != "native":
         raise ValueError("Lip-sync uses the native 32B encoder")
     resolved_turbo_profile = turbo_profile or "v1"
-    if resolved_turbo_profile not in ("v1", "v4"):
-        raise ValueError("Turbo profile must be v1 or v4")
+    if resolved_turbo_profile not in ("v1", "v4", "official"):
+        raise ValueError("Turbo profile must be v1, v4 or official")
     if resolved_engine != "turbo" and turbo_profile not in (None, "v1"):
         raise ValueError("Turbo profile is only available with the turbo engine")
     if resolved_engine == "turbo" and resolved_turbo_profile == "v4" and resolved_steps > 8:
         raise ValueError("Turbo v4 supports 4 to 8 useful steps")
+    if resolved_engine == "turbo" and resolved_turbo_profile == "official" and mode != "reference" and resolved_steps != 4:
+        raise ValueError("Official Turbo is trained for exactly 4 steps")
     if mode == "reference" and resolved_engine == "turbo" and resolved_steps != 4:
         raise ValueError("Ref2VA Turbo uses exactly 4 steps")
     if mode == "lip_sync" and resolved_engine == "turbo":

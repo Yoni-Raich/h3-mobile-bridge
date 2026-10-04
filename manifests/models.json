@@ -91,6 +91,17 @@
       "license_reference": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora"
     },
     {
+      "name": "Official FL2V Turbo 4-step LoRA",
+      "source_repository": "https://huggingface.co/Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "source_path": "loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+      "filename": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+      "target_directory": "loras",
+      "bytes": 1956192992,
+      "sha256": "c396a9a06f58399e9df9754b18299818d84a2ddd371724ba48fe4a41221437dc",
+      "license_reference": "https://huggingface.co/Comfy-Org/MiniMax-H3"
+    },
+    {
       "name": "Ref2VA Turbo 4-step LoRA",
       "source_repository": "https://huggingface.co/lightx2v/Minimax-h3-Turbo",
       "revision": "5d1d4829fe614c1b93fcfd9cc7718e9ba71f73e1",

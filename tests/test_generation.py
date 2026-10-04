@@ -98,6 +98,24 @@ class WorkflowTests(unittest.TestCase):
             "minimax_h3_turbo_v4_step600_ema.safetensors",
         )
 
+    def test_official_turbo_uses_its_trained_schedule(self):
+        settings = normalize_generation_settings("text", "turbo", 4, turbo_profile="official")
+        self.assertEqual(settings.turbo_profile, "official")
+        with self.assertRaisesRegex(ValueError, "exactly 4 steps"):
+            normalize_generation_settings("text", "turbo", 6, turbo_profile="official")
+        workflow = turbo_workflow("test", 5, 11, "turbo-official", steps=4, turbo_profile="official")
+        self.assertEqual(workflow["18"]["class_type"], "LoraLoaderModelOnly")
+        self.assertEqual(
+            workflow["18"]["inputs"]["lora_name"],
+            "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+        )
+        self.assertEqual(workflow["17"]["inputs"]["shift_video"], 6.0)
+        self.assertEqual(workflow["17"]["inputs"]["shift_audio"], 3.0)
+        self.assertEqual(workflow["19"], {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}})
+        self.assertEqual(workflow["9"]["inputs"]["scheduler"], "simple")
+        self.assertEqual(workflow["16"]["inputs"]["model"], ["17", 0])
+        self.assertNotIn("MiniMaxH3TurboSampler", {node["class_type"] for node in workflow.values()})
+
     def test_standard_omits_turbo_nodes_and_keeps_frames(self):
         workflow = standard_workflow(
             "test", 10, 2, "standard", first_frame_name="first.png",

@@ -129,12 +129,23 @@ def turbo_workflow(
         **_resolution_selector(width, height, megapixels, aspect_ratio),
         **_duration_selector(duration),
         "6": {"class_type": "UNETLoader", "inputs": {"unet_name": FL2VA_MODEL, "weight_dtype": "default"}},
-        "18": {"class_type": "MiniMaxH3TurboLoRA", "inputs": {"model": ["6", 0], "lora_name": TURBO_LORAS[turbo_profile], "strength": 1.0, "low_vram": True}},
-        "17": {"class_type": "MiniMaxH3SigmaShift", "inputs": {"model": ["18", 0], "shift_video": 12.0, "shift_audio": 3.0}},
-        "19": {"class_type": "MiniMaxH3TurboSampler", "inputs": {}},
         "9": {"class_type": "BasicScheduler", "inputs": {"model": ["17", 0], "scheduler": "simple", "steps": steps, "denoise": 1.0}},
         "104": {"class_type": "MiniMaxH3ImageToVideo", "inputs": {"clip": ["13", 0], "vae": ["11", 0], "prompt": prompt, "width": ["7", 0], "height": ["7", 1], "length": ["106", 1]}},
     })
+    if turbo_profile == "official":
+        # Trained schedule of the official FL2V Turbo LoRA: plain LoRA patch,
+        # video/audio shift 6/3 and Euler on the simple schedule.
+        nodes.update({
+            "18": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["6", 0], "lora_name": TURBO_LORAS[turbo_profile], "strength_model": 1.0}},
+            "17": {"class_type": "MiniMaxH3SigmaShift", "inputs": {"model": ["18", 0], "shift_video": 6.0, "shift_audio": 3.0}},
+            "19": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
+        })
+    else:
+        nodes.update({
+            "18": {"class_type": "MiniMaxH3TurboLoRA", "inputs": {"model": ["6", 0], "lora_name": TURBO_LORAS[turbo_profile], "strength": 1.0, "low_vram": True}},
+            "17": {"class_type": "MiniMaxH3SigmaShift", "inputs": {"model": ["18", 0], "shift_video": 12.0, "shift_audio": 3.0}},
+            "19": {"class_type": "MiniMaxH3TurboSampler", "inputs": {}},
+        })
     if first_frame_name:
         nodes["200"] = {"class_type": "LoadImage", "inputs": {"image": first_frame_name}}
         nodes["104"]["inputs"]["first_frame"] = ["200", 0]

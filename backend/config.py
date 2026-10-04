@@ -129,7 +129,11 @@ SPECTRUM_NODE_VERSION = "v0.2.5"
 TURBO_LORAS = {
     "v1": "minimax_h3_turbo_4step_ema_ckpt850.safetensors",
     "v4": "minimax_h3_turbo_v4_step600_ema.safetensors",
+    # Official Comfy-Org FL2V Turbo, trained for four steps at 768p. It uses a
+    # plain LoRA loader with Euler/simple and video shift 6, not the Turbo node.
+    "official": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
 }
+TURBO_PROFILES = tuple(TURBO_LORAS)
 REF2VA_TURBO_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 TURBO_LORA = TURBO_LORAS["v1"]
 FL2VA_MODEL = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"

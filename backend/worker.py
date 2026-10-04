@@ -482,6 +482,8 @@ class QueueWorker:
             ref_path = MODELS / "diffusion_models" / REF2VA_MODEL
             if not ref_path.exists():
                 raise RuntimeError(f"Reference model is not installed: {REF2VA_MODEL}")
+        elif job["engine"] == "turbo" and job.get("turbo_profile") == "official":
+            required |= {"LoraLoaderModelOnly", "KSamplerSelect", "MiniMaxH3SigmaShift"}
         elif job["engine"] == "turbo":
             required |= {"MiniMaxH3TurboLoRA", "MiniMaxH3TurboSampler", "MiniMaxH3SigmaShift"}
         elif job["engine"] == "spectrum":

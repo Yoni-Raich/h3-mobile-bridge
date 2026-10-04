@@ -290,6 +290,7 @@ def public_health():
         "clipproj_version": CLIPPROJ_NODE_COMMIT[:12],
         "audio_lock_ready": audio_lock_ready(),
         "turbo_v4_ready": (MODELS / "loras" / TURBO_LORAS["v4"]).exists(),
+        "turbo_official_ready": (MODELS / "loras" / TURBO_LORAS["official"]).exists(),
         "fused_sla_ready": False,
         "fused_sla_models_present": (
             (MODELS / "diffusion_models" / FUSED_MODEL).exists()
@@ -1520,6 +1521,8 @@ async def create_jobs(
         raise HTTPException(400, "Lip-sync creates one video at a time")
     if mode != "reference" and generation.turbo_profile == "v4" and not (MODELS / "loras" / TURBO_LORAS["v4"]).exists():
         raise HTTPException(409, "Turbo v4 is not installed yet")
+    if mode != "reference" and generation.engine == "turbo" and generation.turbo_profile == "official" and not (MODELS / "loras" / TURBO_LORAS["official"]).exists():
+        raise HTTPException(409, "Official Turbo LoRA is not installed yet")
     if mode == "reference" and generation.engine == "turbo" and not (MODELS / "loras" / REF2VA_TURBO_LORA).exists():
         raise HTTPException(409, "Ref2VA Turbo LoRA is not installed yet")
     if mode == "reference" and duration > 5 and not REFERENCE_10S_MARKER.exists():

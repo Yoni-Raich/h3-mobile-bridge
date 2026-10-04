@@ -59,6 +59,24 @@ class JobApiTests(unittest.TestCase):
             connection.close()
         self.assertEqual(row, ("v4", 6))
 
+    def test_official_turbo_profile_requires_the_installed_lora(self):
+        models = Path(self.temp.name) / "models"
+        with patch("backend.main.MODELS", models):
+            missing = self.post(engine="turbo", turbo_profile="official", steps="4")
+        self.assertEqual(missing.status_code, 409, missing.text)
+        lora = models / "loras" / "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors"
+        lora.parent.mkdir(parents=True)
+        lora.write_bytes(b"test-marker")
+        with patch("backend.main.MODELS", models):
+            response = self.post(engine="turbo", turbo_profile="official", steps="4")
+        self.assertEqual(response.status_code, 200, response.text)
+        connection = sqlite3.connect(self.path)
+        try:
+            row = connection.execute("SELECT turbo_profile,steps FROM jobs").fetchone()
+        finally:
+            connection.close()
+        self.assertEqual(row, ("official", 4))
+
     def test_reference_audio_is_persisted_as_an_optional_official_reference(self):
         data = {
             "prompt": "<Picture 1> speaks in time with <Audio 1>",
