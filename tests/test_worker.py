@@ -1,10 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import backend.db as db_module
 from backend.db import connect, now_iso
-from backend.worker import QueueWorker
+from backend.worker import QueueWorker, describe_exception, prompt_is_active
 
 
 class WorkerSequenceTests(unittest.IsolatedAsyncioTestCase):
@@ -40,6 +41,43 @@ class WorkerSequenceTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT status,phase FROM sequences WHERE id=?", (sequence_id,)
             ).fetchone()
         self.assertEqual(tuple(row), ("verifying", "assembling"))
+
+    async def test_transient_history_failure_keeps_active_prompt_alive(self):
+        worker = QueueWorker()
+        worker.comfy.history = AsyncMock(side_effect=TimeoutError())
+        worker.comfy.queue = AsyncMock(return_value={
+            "queue_running": [[1, "active-prompt", {}, {}, []]],
+            "queue_pending": [],
+        })
+
+        history, error, active = await worker._poll_history("active-prompt")
+
+        self.assertIsNone(history)
+        self.assertEqual(error, "TimeoutError")
+        self.assertTrue(active)
+
+    async def test_history_and_queue_failures_keep_descriptive_error(self):
+        worker = QueueWorker()
+        worker.comfy.history = AsyncMock(side_effect=TimeoutError())
+        worker.comfy.queue = AsyncMock(side_effect=ConnectionError("offline"))
+
+        history, error, active = await worker._poll_history("missing-prompt")
+
+        self.assertIsNone(history)
+        self.assertEqual(error, "TimeoutError; queue check failed: ConnectionError: offline")
+        self.assertFalse(active)
+
+    def test_queue_parser_checks_running_and_pending_prompts(self):
+        queue = {
+            "queue_running": [[1, "running-prompt"]],
+            "queue_pending": [[2, "pending-prompt"]],
+        }
+        self.assertTrue(prompt_is_active(queue, "running-prompt"))
+        self.assertTrue(prompt_is_active(queue, "pending-prompt"))
+        self.assertFalse(prompt_is_active(queue, "other-prompt"))
+
+    def test_empty_exception_message_keeps_exception_type(self):
+        self.assertEqual(describe_exception(TimeoutError()), "TimeoutError")
 
 
 if __name__ == "__main__":

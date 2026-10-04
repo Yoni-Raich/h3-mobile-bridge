@@ -22,19 +22,64 @@ class ComfyClient:
 
     async def ready(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                for endpoint in ("/system_stats", "/object_info", "/models", "/queue"):
-                    response = await client.get(COMFY_URL + endpoint)
-                    response.raise_for_status()
+            # /object_info and /models can be very slow while custom nodes or
+            # large H3 models are loading.  Health reporting must answer a
+            # simple question: is the ComfyUI server responsive?
+            async with httpx.AsyncClient(timeout=3) as client:
+                response = await client.get(COMFY_URL + "/system_stats")
+                response.raise_for_status()
             return True
         except Exception:
             return False
+
+    def _windows_process_ids(self) -> list[int]:
+        """Find ComfyUI processes even when this app lost its Popen handle."""
+        if os.name != "nt":
+            return []
+        code = str(COMFY_CODE).replace("'", "''")
+        script = (
+            "$needle = '" + code + "\\main.py'; "
+            "$port = '--port " + str(COMFY_PORT) + "'; "
+            "Get-CimInstance Win32_Process | "
+            "Where-Object { $_.CommandLine -and "
+            "$_.Name -match '^python(\.exe)?$' -and "
+            "$_.CommandLine -like ('*' + $needle + '*') -and "
+            "$_.CommandLine -like ('*' + $port + '*') } | "
+            "Select-Object -ExpandProperty ProcessId"
+        )
+        try:
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return []
+
+    def discovered_pid(self) -> int | None:
+        if self.process and self.process.poll() is None:
+            return self.process.pid
+        pids = self._windows_process_ids()
+        return pids[0] if pids else None
 
     async def ensure_started(self):
         if await self.ready():
             return
         if not COMFY_PYTHON.exists() or not (COMFY_CODE / "main.py").exists():
             raise RuntimeError("ComfyUI installation is missing")
+
+        # The bridge can lose its Popen handle while a previous ComfyUI
+        # process tree remains alive. Starting another instance then causes
+        # port 8190 and ComfyUI's SQLite database to be locked. Remove only
+        # stale processes matching this exact installation and port.
+        if self._windows_process_ids():
+            await self.shutdown()
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if not self._windows_process_ids():
+                    break
+                await asyncio.sleep(0.5)
+
         self.log_handle = open(LOGS / "comfy-8190.log", "a", encoding="utf-8", buffering=1)
         command = [
             str(COMFY_PYTHON), "-u", str(COMFY_CODE / "main.py"),
@@ -46,13 +91,26 @@ class ComfyClient:
             "--temp-directory", str(TEMP),
             "--user-directory", str(USER),
             "--database-url", "sqlite:///" + str((USER / "comfyui.db").resolve()).replace("\\", "/"),
-            "--disable-auto-launch", "--disable-api-nodes", "--lowvram", "--preview-method", "none",
+            "--disable-auto-launch", "--disable-api-nodes",
+            "--reserve-vram", "0.9", "--enable-dynamic-vram", "--async-offload", "2",
+            # H3 Turbo at 0.6 MP can make Windows fail while allocating a very
+            # large pinned host window for dynamic weight loading. Prefer the
+            # NVMe-backed path on the bridge ComfyUI process; the protected
+            # manual 8188 process is not changed.
+            "--fast-disk",
+            "--preview-method", "none",
             "--log-stdout",
         ]
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        child_env = os.environ.copy()
+        # ComfyUI custom nodes may emit Unicode (including emoji) while
+        # loading. Windows can otherwise inherit the user's legacy code page
+        # and crash the child while writing its own diagnostic log.
+        child_env.setdefault("PYTHONUTF8", "1")
+        child_env.setdefault("PYTHONIOENCODING", "utf-8")
         self.process = subprocess.Popen(
             command, cwd=COMFY_CODE, stdout=self.log_handle, stderr=subprocess.STDOUT,
-            creationflags=flags,
+            creationflags=flags, env=child_env,
         )
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
@@ -151,14 +209,48 @@ class ComfyClient:
             pass
 
     async def shutdown(self):
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                await asyncio.to_thread(self.process.wait, 15)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-        if self.log_handle:
-            self.log_handle.close()
+        process = self.process
+        self.process = None
+        discovered = [] if process and process.poll() is None else self._windows_process_ids()
+        try:
+            if process and process.poll() is None:
+                if os.name == "nt":
+                    # ComfyUI/custom nodes can create a child process that owns
+                    # the HTTP listener.  Terminating only the tracked parent
+                    # leaves that child alive and makes the next start attach
+                    # to the wrong instance.  /T is scoped to this exact PID.
+                    await asyncio.to_thread(
+                        subprocess.run,
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                        check=False,
+                    )
+                else:
+                    process.terminate()
+                    try:
+                        await asyncio.to_thread(process.wait, 15)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+            elif discovered:
+                # The app may have restarted while ComfyUI remained alive,
+                # leaving no Popen handle. Kill only matching ComfyUI trees.
+                for pid in discovered:
+                    await asyncio.to_thread(
+                        subprocess.run,
+                        ["taskkill", "/PID", str(pid), "/T", "/F"],
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                        check=False,
+                    )
+            if process and process.poll() is None:
+                await asyncio.to_thread(process.wait, 5)
+        finally:
+            if self.log_handle:
+                self.log_handle.close()
+                self.log_handle = None
 
 
 def find_video(prefix: str) -> Path | None:
@@ -166,7 +258,7 @@ def find_video(prefix: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def media_probe(path: Path) -> dict:
+def media_probe(path: Path, require_audio: bool = True) -> dict:
     ffprobe = shutil.which("ffprobe")
     ffmpeg = shutil.which("ffmpeg")
     if not ffprobe or not ffmpeg:
@@ -182,7 +274,7 @@ def media_probe(path: Path) -> dict:
     streams = payload.get("streams", [])
     if not any(s.get("codec_type") == "video" for s in streams):
         raise RuntimeError("Output has no video stream")
-    if not any(s.get("codec_type") == "audio" for s in streams):
+    if require_audio and not any(s.get("codec_type") == "audio" for s in streams):
         raise RuntimeError("Output has no audio stream")
     decode = subprocess.run([ffmpeg, "-v", "error", "-i", str(path), "-f", "null", "-"], capture_output=True, text=True, timeout=300)
     if decode.returncode:

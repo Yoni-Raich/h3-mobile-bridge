@@ -39,7 +39,49 @@ def extract_last_frame(video: Path, target: Path, width: int, height: int) -> Pa
     return target
 
 
-def assemble_clips(clips: list[Path], output: Path) -> dict:
+def extract_review_frames(video: Path, target_dir: Path, fps: float = 1.0, limit: int = 48) -> list[Path]:
+    """Extract a dense, bounded visual sample for agent quality review."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is required to extract review frames")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    pattern = target_dir / "frame_%04d.jpg"
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(video),
+        "-vf", f"fps={max(0.25, min(fps, 4.0))}", "-frames:v", str(limit),
+        "-q:v", "2", "-y", str(pattern),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+    frames = sorted(target_dir.glob("frame_*.jpg"))
+    if result.returncode or not frames:
+        raise RuntimeError("Could not extract review frames: " + result.stderr[-1200:])
+    return frames
+
+
+def attach_song(video: Path, song: Path, output: Path) -> dict:
+    """Mux the original song over a silent assembled master."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is required to attach the song")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(video), "-i", str(song),
+        "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "256k",
+        "-shortest", "-movflags", "+faststart", "-y", str(output),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=1800)
+    if result.returncode or not output.exists():
+        raise RuntimeError("Could not attach the original song: " + result.stderr[-3000:])
+    return {"output": str(output), "ffprobe": media_probe(output, require_audio=True)}
+
+
+def assemble_clips(
+    clips: list[Path],
+    output: Path,
+    *,
+    include_audio: bool | None = None,
+    target_durations: list[float] | None = None,
+) -> dict:
     """Normalize and join validated H3 clips with deterministic hard cuts.
 
     The first selected clip defines the output frame size. Every input is
@@ -52,8 +94,13 @@ def assemble_clips(clips: list[Path], output: Path) -> dict:
     if not ffmpeg:
         raise RuntimeError("ffmpeg is required for final assembly")
 
-    probes = [media_probe(path) for path in clips]
-    durations = [_duration(probe) for probe in probes]
+    probes = [media_probe(path, require_audio=False) for path in clips]
+    source_durations = [_duration(probe) for probe in probes]
+    durations = [
+        float(value) for value in target_durations
+    ] if target_durations is not None else source_durations
+    if len(durations) != len(clips) or any(value <= 0 for value in durations):
+        raise ValueError("Target durations must contain one positive value per clip")
     first_stream = _video_stream(probes[0])
     width = int(first_stream.get("width") or 0)
     height = int(first_stream.get("height") or 0)
@@ -62,6 +109,11 @@ def assemble_clips(clips: list[Path], output: Path) -> dict:
 
     inputs: list[str] = []
     filters: list[str] = []
+    detected_audio = any(
+        any(stream.get("codec_type") == "audio" for stream in probe.get("streams", []))
+        for probe in probes
+    )
+    has_any_audio = detected_audio if include_audio is None else bool(include_audio)
     for index, (clip, duration) in enumerate(zip(clips, durations)):
         inputs += ["-i", str(clip)]
         filters.append(
@@ -70,32 +122,67 @@ def assemble_clips(clips: list[Path], output: Path) -> dict:
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
             f"settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[v{index}]"
         )
-        filters.append(
-            f"[{index}:a]aresample=48000,"
-            f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
-            f"asetpts=PTS-STARTPTS[a{index}]"
-        )
+        if has_any_audio:
+            has_audio = any(stream.get("codec_type") == "audio" for stream in probes[index].get("streams", []))
+            audio_source = (
+                f"[{index}:a]atrim=duration={duration:.6f},"
+                if has_audio
+                else f"anullsrc=r=48000:cl=stereo,atrim=duration={duration:.6f},"
+            )
+            filters.append(
+                f"{audio_source}aresample=48000,"
+                f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                f"asetpts=PTS-STARTPTS[a{index}]"
+            )
 
-    concat_inputs = "".join(f"[v{index}][a{index}]" for index in range(len(clips)))
-    filters.append(f"{concat_inputs}concat=n={len(clips)}:v=1:a=1[vout][aout]")
+    if has_any_audio:
+        concat_inputs = "".join(f"[v{index}][a{index}]" for index in range(len(clips)))
+        filters.append(f"{concat_inputs}concat=n={len(clips)}:v=1:a=1[vout][aout]")
+    else:
+        concat_inputs = "".join(f"[v{index}]" for index in range(len(clips)))
+        filters.append(f"{concat_inputs}concat=n={len(clips)}:v=1:a=0[vout]")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     command = [
         ffmpeg, "-hide_banner", "-loglevel", "error", *inputs,
         "-filter_complex", ";".join(filters),
-        "-map", "[vout]", "-map", "[aout]",
+        "-map", "[vout]",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", "-y", str(output),
     ]
+    if has_any_audio:
+        command[command.index("-movflags"):command.index("-movflags")] = ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
     result = subprocess.run(command, capture_output=True, text=True, timeout=1800)
     if result.returncode:
         raise RuntimeError("Final video assembly failed: " + result.stderr[-3000:])
 
-    final_probe = media_probe(output)
+    final_probe = media_probe(output, require_audio=False)
     return {
         "source_count": len(clips),
-        "source_durations": durations,
+        "source_durations": source_durations,
+        "target_durations": durations,
         "output": str(output),
         "ffprobe": final_probe,
     }
+
+
+def burn_ass_captions(video: Path, captions: Path, output: Path) -> dict:
+    """Burn an ASS file while copying the already-muxed source audio."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is required to burn captions")
+    if not captions.exists():
+        raise RuntimeError(f"Caption file is missing: {captions}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(video),
+        "-vf", "ass=captions.ass", "-map", "0:v:0", "-map", "0:a:0?",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+        "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart",
+        "-y", str(output),
+    ]
+    result = subprocess.run(command, cwd=str(captions.parent), capture_output=True, text=True, timeout=1800)
+    if result.returncode or not output.exists():
+        raise RuntimeError("Could not burn captions: " + result.stderr[-3000:])
+    return {"output": str(output), "ffprobe": media_probe(output, require_audio=True)}

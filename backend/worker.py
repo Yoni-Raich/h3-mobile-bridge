@@ -5,18 +5,35 @@ import uuid
 from pathlib import Path
 
 from .comfy import ComfyClient, find_video, gpu_sample, media_probe
-from .config import (CLIPPROJ_NODE_DIR, CLIPPROJ_PROJECTION,
+from .config import (AUDIOLOCK_NODE_DIR, CLIPPROJ_NODE_DIR, CLIPPROJ_PROJECTION,
                      CLIPPROJ_TEXT_ENCODER, INPUT, MODELS, REF2VA_MODEL,
+                     REF2VA_TURBO_LORA,
                      SEQUENCES)
 from .db import (connect, get_job, get_sequence, historical_generation_seconds,
                  now_iso, update_job, update_sequence)
 from .media import assemble_clips, extract_last_frame
-from .workflows import (reference_workflow, spectrum_workflow,
-                        standard_workflow, turbo_workflow)
+from .library import finalize_completed_asset
+from .workflows import (native_audio_lock_workflow, reference_workflow, spectrum_workflow,
+                         standard_workflow, turbo_audio_lock_workflow, turbo_workflow)
 
 
 SAMPLER_NODE_ID = "14"
 ACTIVE_STATUSES = ("starting", "running", "verifying")
+HISTORY_POLL_FAILURE_LIMIT = 6
+HISTORY_POLL_BACKOFF_SECONDS = (2, 5, 10, 15, 20, 30)
+
+
+def describe_exception(exc: Exception) -> str:
+    message = str(exc).strip()
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
+def prompt_is_active(queue: dict, prompt_id: str) -> bool:
+    for key in ("queue_running", "queue_pending"):
+        for item in queue.get(key, []):
+            if isinstance(item, (list, tuple)) and len(item) > 1 and str(item[1]) == prompt_id:
+                return True
+    return False
 
 
 class QueueWorker:
@@ -41,6 +58,49 @@ class QueueWorker:
 
     def notify(self):
         self.wake.set()
+
+    async def _poll_history(self, prompt_id: str) -> tuple[dict | None, str | None, bool]:
+        try:
+            return await self.comfy.history(prompt_id), None, False
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            history_error = describe_exception(exc)
+            try:
+                queue = await self.comfy.queue()
+                return None, history_error, prompt_is_active(queue, prompt_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as queue_exc:
+                return (
+                    None,
+                    f"{history_error}; queue check failed: {describe_exception(queue_exc)}",
+                    False,
+                )
+
+    async def _wait_for_stable_video(
+        self, prefix: str, attempts: int = 6, delay: float = 1.0,
+    ) -> Path | None:
+        signature = None
+        stable_checks = 0
+        for attempt in range(max(1, attempts)):
+            video = find_video(prefix)
+            if video:
+                try:
+                    stat = video.stat()
+                    current = (str(video), stat.st_size, stat.st_mtime_ns)
+                except OSError:
+                    current = None
+                if current and current == signature:
+                    stable_checks += 1
+                elif current:
+                    signature = current
+                    stable_checks = 1
+                if stable_checks >= 2:
+                    return video
+            if attempt + 1 < attempts:
+                await asyncio.sleep(delay)
+        return None
 
     async def cancel(self, job_id: str):
         job = get_job(job_id, public=False)
@@ -232,7 +292,7 @@ class QueueWorker:
                 raise
             except Exception as exc:
                 status = "canceled" if job["id"] in self.cancelled else "failed"
-                error = str(exc)[:8000]
+                error = describe_exception(exc)[:8000]
                 update_job(
                     job["id"], status=status, phase=status, eta_seconds=None,
                     error=error, finished_at=now_iso(),
@@ -325,7 +385,10 @@ class QueueWorker:
             self._update_parent_progress(job, "starting", 0, estimated_total)
         await self.comfy.ensure_started()
         info = await self.comfy.object_info()
-        required = {"UNETLoader", "VAELoader", "MiniMaxH3ImageToVideo", "CreateVideo", "SaveVideo"}
+        required = {
+            "UNETLoader", "VAELoader", "MiniMaxH3ImageToVideo", "CreateVideo", "SaveVideo",
+            "ResolutionSelector", "ComfyMathExpression",
+        }
         encoder = job.get("encoder") or "native"
         if encoder == "clipproj":
             required.add("ClipProjLoader")
@@ -340,15 +403,40 @@ class QueueWorker:
         else:
             required.add("CLIPLoader")
 
-        if job["mode"] == "reference":
-            required |= {"MiniMaxH3ReferenceToVideo", "KSamplerSelect"}
+        if job["mode"] == "lip_sync":
+            required |= {"KSamplerSelect", "LoadAudio", "MiniMaxH3NativeAudioLock"}
+            if (job.get("encoder") or "native") != "native":
+                raise RuntimeError("Lip-sync requires the native 32B encoder")
+            if job["engine"] == "turbo":
+                required |= {"MiniMaxH3TurboLoRA", "MiniMaxH3TurboSampler", "MiniMaxH3SigmaShift"}
+                if job.get("turbo_profile") != "v1" or job.get("steps") != 4:
+                    raise RuntimeError("Experimental Turbo lip-sync requires Turbo v1 with 4 steps")
+            elif job["engine"] != "standard":
+                raise RuntimeError("Lip-sync requires the Standard engine or the experimental Turbo route")
+            if not (AUDIOLOCK_NODE_DIR / "__init__.py").exists():
+                raise RuntimeError("Native AudioLock node is not installed")
+            if not job.get("reference_audio_name"):
+                raise RuntimeError("Lip-sync job has no uploaded audio")
+        elif job["mode"] == "reference":
+            required.add("MiniMaxH3ReferenceToVideo")
+            if job["engine"] == "turbo":
+                required |= {"MiniMaxH3TurboLoRA", "MiniMaxH3TurboSampler", "MiniMaxH3SigmaShift"}
+                if not (MODELS / "loras" / REF2VA_TURBO_LORA).exists():
+                    raise RuntimeError(f"Ref2VA Turbo LoRA is not installed: {REF2VA_TURBO_LORA}")
+            elif job["engine"] == "spectrum":
+                required |= {"KSamplerSelect", "MiniMaxH3SigmaShift", "SpectrumApplyMiniMaxH3"}
+            else:
+                required.add("KSamplerSelect")
             if job.get("reference_audio_name"):
                 required.add("LoadAudio")
+            reference_videos = json.loads(job.get("reference_videos_json") or "[]")
+            if reference_videos:
+                required |= {"LoadVideo", "GetVideoComponents"}
             ref_path = MODELS / "diffusion_models" / REF2VA_MODEL
             if not ref_path.exists():
                 raise RuntimeError(f"Reference model is not installed: {REF2VA_MODEL}")
         elif job["engine"] == "turbo":
-            required |= {"MiniMaxH3TurboLoRA", "MiniMaxH3TurboSampler"}
+            required |= {"MiniMaxH3TurboLoRA", "MiniMaxH3TurboSampler", "MiniMaxH3SigmaShift"}
         elif job["engine"] == "spectrum":
             required |= {"KSamplerSelect", "MiniMaxH3SigmaShift", "SpectrumApplyMiniMaxH3"}
         else:
@@ -360,12 +448,30 @@ class QueueWorker:
         seed = int(job["seed"])
         prefix = f"h3_bridge_{job['id']}"
         image_name = job.get("input_name")
-        if job["mode"] == "reference":
+        if job["mode"] == "lip_sync":
+            workflow_builder = turbo_audio_lock_workflow if job["engine"] == "turbo" else native_audio_lock_workflow
+            workflow_options = {
+                "audio_name": job["reference_audio_name"],
+                "first_frame_name": job.get("first_frame_name"),
+                "steps": job["steps"], "width": job["width"], "height": job["height"],
+                "megapixels": job.get("megapixels"), "aspect_ratio": job.get("aspect_ratio"),
+                "encoder": encoder,
+            }
+            if job["engine"] == "turbo":
+                workflow_options["turbo_profile"] = job.get("turbo_profile") or "v1"
+            workflow = workflow_builder(job["prompt"], job["duration"], seed, prefix, **workflow_options)
+        elif job["mode"] == "reference":
+            reference_images = json.loads(job.get("reference_images_json") or "[]")
+            if not reference_images and image_name:
+                reference_images = [image_name]
             workflow = reference_workflow(
-                job["prompt"], job["duration"], seed, prefix, image_name,
+                job["prompt"], job["duration"], seed, prefix, reference_images[0] if reference_images else None,
                 audio_name=job.get("reference_audio_name"),
                 steps=job["steps"], width=job["width"], height=job["height"],
-                spectrum=job["engine"] == "spectrum", encoder=encoder,
+                megapixels=job.get("megapixels"), aspect_ratio=job.get("aspect_ratio"),
+                spectrum=job["engine"] == "spectrum", turbo=job["engine"] == "turbo", encoder=encoder,
+                image_names=reference_images, video_names=json.loads(job.get("reference_videos_json") or "[]"),
+                include_audio=not bool(job.get("no_audio")),
             )
         else:
             first_frame_name = job.get("first_frame_name")
@@ -383,7 +489,9 @@ class QueueWorker:
                 "first_frame_name": first_frame_name,
                 "last_frame_name": last_frame_name,
                 "steps": job["steps"], "width": job["width"], "height": job["height"],
+                "megapixels": job.get("megapixels"), "aspect_ratio": job.get("aspect_ratio"),
                 "encoder": encoder,
+                "include_audio": not bool(job.get("no_audio")),
             }
             if job["engine"] == "turbo":
                 workflow_options["turbo_profile"] = job.get("turbo_profile") or "v1"
@@ -471,10 +579,25 @@ class QueueWorker:
             )
             peak = {}
             samples = []
+            history_failures = 0
+            recovered_video: Path | None = None
             while True:
                 if job["id"] in self.cancelled:
                     raise RuntimeError("Generation canceled")
-                history = await self.comfy.history(prompt_id)
+                history, poll_error, prompt_active = await self._poll_history(prompt_id)
+                if poll_error:
+                    history_failures += 1
+                    if prompt_active or history_failures < HISTORY_POLL_FAILURE_LIMIT:
+                        backoff_index = min(history_failures - 1, len(HISTORY_POLL_BACKOFF_SECONDS) - 1)
+                        await asyncio.sleep(HISTORY_POLL_BACKOFF_SECONDS[backoff_index])
+                        continue
+                    recovered_video = await self._wait_for_stable_video(prefix)
+                    if recovered_video:
+                        break
+                    raise RuntimeError(
+                        f"ComfyUI history polling failed {history_failures} times: {poll_error}"
+                    )
+                history_failures = 0
                 sample = gpu_sample()
                 if sample:
                     samples.append({"at_seconds": round(time.monotonic() - started, 1), **sample})
@@ -498,10 +621,12 @@ class QueueWorker:
                 eta_seconds=round(eta, 1) if eta is not None else None,
             )
             self._update_parent_progress(job, "verifying", 1, eta)
-            video = find_video(prefix)
+            video = recovered_video or await self._wait_for_stable_video(prefix)
             if not video:
                 raise RuntimeError("ComfyUI completed but no MP4 was found")
-            probe = await asyncio.to_thread(media_probe, video)
+            probe = await asyncio.to_thread(
+                media_probe, video, require_audio=not bool(job.get("no_audio"))
+            )
 
             if job.get("sequence_id") and job["sequence_index"] < job["sequence_total"]:
                 frame_name = f"sequence_{job['sequence_id']}_shot{job['sequence_index']:02d}_last.png"
@@ -539,6 +664,9 @@ class QueueWorker:
                 eta_seconds=0, output_path=str(video), metrics=metrics,
                 finished_at=now_iso(), error=None,
             )
+            organized = await asyncio.to_thread(finalize_completed_asset, "job", job["id"])
+            if organized:
+                video = organized
 
             if job.get("sequence_id"):
                 with connect() as db:
@@ -613,3 +741,4 @@ class QueueWorker:
             eta_seconds=0, output_path=str(output), metrics=metrics,
             error=None, finished_at=now_iso(),
         )
+        await asyncio.to_thread(finalize_completed_asset, "sequence", sequence_id)
