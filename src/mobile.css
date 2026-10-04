@@ -1,5 +1,4 @@
-/* Mobile-first Studio shell. Loaded after styles.css; every rule is scoped to
-   .app-shell so the Production and Image Gen pages keep their own layout. */
+/* Mobile Studio shell and shared controls. Loaded after styles.css. */
 :root {
   --bg: #0a0c0b;
   --surface: #131715;
@@ -24,6 +23,10 @@ body { background: radial-gradient(120% 60% at 80% -10%, #1d2a23 0, transparent 
 .app-shell { padding: env(safe-area-inset-top) 14px calc(var(--nav-height) + 28px + env(safe-area-inset-bottom)); color: var(--text); }
 .app-shell button, .app-shell select, .app-shell input, .app-shell textarea { font-family: inherit; }
 .app-shell button { touch-action: manipulation; }
+.app-shell :is(button, input, select, textarea, summary, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.app-shell { overflow-wrap: anywhere; scroll-padding-bottom: 200px; }
+.app-shell :is(input, textarea, select, button) { max-width: 100%; }
+.app-shell .topbar-actions { margin-inline-start: auto; }
 
 /* Top bar */
 .app-shell .topbar { position: sticky; top: 0; z-index: 40; height: 60px; margin: 0 -14px 12px; padding: 0 14px; gap: 10px; background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid #ffffff0a; }
@@ -245,3 +248,39 @@ body { background: radial-gradient(120% 60% at 80% -10%, #1d2a23 0, transparent 
   .app-shell .turbo-profile-toggle { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .app-shell .topbar-live i { animation: none; } }
+
+/* Production uses the same quiet palette and readable mobile controls. */
+.app-shell .ps-root { --ps-bg: var(--bg); --ps-card: var(--surface); --ps-card-2: var(--surface-2); --ps-border: var(--line); --ps-muted: var(--muted); --ps-text: var(--text); --ps-violet: var(--accent); --ps-cyan: var(--gold); background: var(--surface); border-color: var(--line); box-shadow: none; font-size: 14px; }
+.app-shell .ps-panel { background: var(--surface); border-color: var(--line); box-shadow: none; }
+.app-shell .ps-root :is(input, textarea, select) { font-size: 16px; min-height: 44px; background: var(--bg); border-color: var(--line-strong); color: var(--text); }
+.app-shell .ps-root button, .app-shell .ps-root .ps-control-link, .app-shell .ps-reference-upload { min-height: 44px; font-size: 13px; }
+.app-shell .ps-root :is(p, small, label, .ps-field-title, .ps-choice-row > div > span, .ps-message-head, .ps-status, .ps-shot-list b, .ps-shot-list small, .ps-shot-list details, .ps-shot-list article > i, .ps-reference-list a) { font-size: 12px; line-height: 1.5; }
+.app-shell .ps-root :is(.ps-primary, .ps-controls button.primary, .ps-segment button.active) { background: var(--accent); color: var(--accent-ink); box-shadow: none; border-color: var(--accent); }
+.app-shell .ps-root :is(.ps-secondary, .ps-controls button, .ps-control-link, .ps-agent-select, .ps-project-skills) { background: var(--surface-2); border-color: var(--line); }
+.app-shell .ps-root :is(.ps-brand, .ps-icon, .ps-avatar) { background: var(--surface-2); border-color: var(--line-strong); color: var(--accent); }
+.app-shell .ps-root :is(.ps-field-title, .ps-page-head span, .ps-new, .ps-reference-upload, .ps-panel-title > svg) { color: var(--accent); }
+.app-shell .ps-timeline .current { background: #b5d9bc16; color: var(--accent); }
+.app-shell .ps-timeline .current i { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.app-shell .ps-message-body { font-size: 14px; line-height: 1.65; }
+.app-shell .ps-composer { gap: 8px; }
+.app-shell .ps-modal-backdrop { z-index: 100; }
+.app-shell .ps-shot-editor { max-height: calc(100dvh - 32px); }
+
+/* Image creation: keep model details optional and the prompt comfortable. */
+.app-shell .image-gen-header-bar { flex-wrap: wrap; padding: 12px; background: var(--surface); border-color: var(--line); }
+.app-shell .image-gen-studio :is(.model-pill, .status-pill, .section-title, .composer-meta) { font-size: 12px; }
+.app-shell .image-gen-studio :is(input, select, textarea) { font-size: 16px; }
+.app-shell .image-gen-studio :is(button, a) { min-height: 44px; }
+.app-shell .image-model-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+@media (max-width: 619px) {
+  .app-shell .ps-composer { grid-template-columns: minmax(0, 1fr) 44px; }
+  .app-shell .ps-composer select { grid-column: 1 / -1; }
+  .app-shell .ps-create-actions { bottom: calc(var(--nav-height) + 12px + env(safe-area-inset-bottom)); background: var(--surface); }
+  .app-shell .ps-production-head { padding-inline: 12px; }
+  .app-shell .ps-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-shell .ps-controls :is(button, a) { min-width: 0; width: 100%; min-height: 46px; overflow-wrap: normal; justify-content: center; }
+  .app-shell .ps-shot-list article { grid-template-columns: 24px minmax(0, 1fr); }
+  .app-shell .ps-shot-list article > i { grid-column: 2; justify-self: start; }
+  .app-shell .image-model-options { grid-template-columns: 1fr; }
+}
