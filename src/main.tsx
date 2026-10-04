@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { ArrowDown, ArrowUp, AudioLines, BrainCircuit, Check, ChevronDown, ChevronLeft, Clapperboard, Combine, Copy, Download, Folder, FolderPlus, Gauge, Image as ImageIcon, Link2, LoaderCircle, Lock, Mic, Minus, Move, Pencil, Play, Plus, Power, RefreshCw, Route, Send, ShieldAlert, SlidersHorizontal, Sparkles, Square, Terminal, Trash2, X, Zap } from 'lucide-react'
 import './styles.css'
 import { ProductionStudio } from './production'
+import { ImageGenStudio } from './image_gen'
+import { PerformancePanel, type StudioPreset } from './performance'
 
 type Mode = 'text' | 'frames' | 'reference' | 'opening' | 'closing' | 'lip_sync'
 type Engine = 'turbo' | 'standard' | 'spectrum'
@@ -11,7 +13,7 @@ type TurboProfile = 'v1' | 'v4'
 type Resolution = '512x288' | '736x416' | '864x480' | '768x768' | '1024x768' | '768x1024' | '1344x768' | '768x1344'
 type Status = 'queued' | 'starting' | 'running' | 'verifying' | 'completed' | 'failed' | 'canceled'
 type Phase = 'queued' | 'starting' | 'sampling' | 'processing' | 'verifying' | 'completed' | 'failed' | 'canceled'
-type Page = 'studio' | 'production' | 'comfy'
+type Page = 'studio' | 'production' | 'image_gen' | 'comfy'
 type Job = {
   id: string; prompt: string; mode: Mode; duration: number; status: Status; progress: number;
   engine: Engine; turbo_profile?: TurboProfile; encoder: Encoder; steps: number; width: number; height: number; megapixels?: number; aspect_ratio?: string; position?: number;
@@ -157,6 +159,15 @@ function ComfyPage({ running, busy, lines, error, onRefresh, onClear }: ComfyPag
   </section>
 }
 
+function GenerationError({ error }: { error: string }) {
+  const message = /OutOfMemory|Allocation on device/.test(error)
+    ? 'אין מספיק זיכרון בכרטיס להגדרות האלה. נסה שוט קצר יותר או רזולוציה נמוכה יותר.'
+    : /ConnectTimeout|history polling failed/.test(error)
+    ? 'הקשר למנוע היצירה נקטע. בדוק את מצב ComfyUI לפני ניסיון נוסף.'
+    : error.length > 190 ? error.slice(0, 190) + '…' : error
+  return <div className="generation-error"><p>{message}</p>{message !== error && <details><summary>פרטים טכניים</summary><pre dir="ltr">{error}</pre></details>}</div>
+}
+
 function App() {
   const [page, setPage] = useState<Page>('studio')
   const [csrf, setCsrf] = useState('')
@@ -168,6 +179,18 @@ function App() {
   const [batch, setBatch] = useState(false)
   const [connected, setConnected] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(readPreferences)
+  const selectedPreset: StudioPreset | null = duration === 5 && preferences.aspect === '16:9'
+    ? preferences.engine === 'standard' && preferences.encoder === 'native' && preferences.standardSteps === 20 && preferences.megapixels === 0.41 ? 'quality'
+    : preferences.engine === 'turbo' && preferences.turboProfile === 'v1' && preferences.turboSteps === 4
+      ? preferences.encoder === 'clipproj' && preferences.megapixels === 0.31 ? 'balanced'
+      : preferences.encoder === 'native' && preferences.megapixels === 0.15 ? 'preview' : null
+    : null : null
+  const applyStudioPreset = (preset: StudioPreset) => {
+    setPreferences(current => ({ ...current, engine: preset === 'quality' ? 'standard' : 'turbo',
+      encoder: preset === 'balanced' ? 'clipproj' : 'native', turboProfile: 'v1', turboSteps: 4,
+      standardSteps: 20, aspect: '16:9', megapixels: preset === 'quality' ? 0.41 : preset === 'balanced' ? 0.31 : 0.15 }))
+    setDuration(5)
+  }
   const [confirming, setConfirming] = useState(false)
   const [referenceImages, setReferenceImages] = useState<File[]>([])
   const [referenceVideos, setReferenceVideos] = useState<File[]>([])
@@ -198,6 +221,16 @@ function App() {
   const [turboV4Ready, setTurboV4Ready] = useState(false)
   const [referenceTurboReady, setReferenceTurboReady] = useState(false)
   const [audioLockReady, setAudioLockReady] = useState(false)
+  const [qwenImageReady, setQwenImageReady] = useState(false)
+
+  const handleUseInStudio = (imageFile: File, promptText?: string) => {
+    setOpeningFrame(imageFile)
+    if (promptText && !prompt.trim()) {
+      setPrompt(promptText)
+    }
+    setMode('frames')
+    setPage('studio')
+  }
   const [gpuConflict, setGpuConflict] = useState(false)
   const [gpuBusy, setGpuBusy] = useState(false)
   const [noAudio, setNoAudio] = useState(false)
@@ -233,6 +266,7 @@ function App() {
       setTurboV4Ready(data.turbo_v4_ready)
       setReferenceTurboReady(data.reference_turbo_ready)
       setAudioLockReady(Boolean(data.audio_lock_ready))
+      if (typeof data.qwen_image_ready === 'boolean') setQwenImageReady(data.qwen_image_ready)
       setGpuConflict(Boolean(data.gpu_conflict))
       return data.csrf_token
     } catch {
@@ -248,6 +282,7 @@ function App() {
         const data = await response.json()
         setJobs(data.jobs); setSequences(data.sequences || []); setLibrary(data.library || { root: '', projects: [], assignments: [] }); setReferenceReady(data.reference_ready); setReference10Ready(data.reference_10s_ready); setSpectrumReady(data.spectrum_ready); setClipprojReady(data.clipproj_ready); setTurboV4Ready(data.turbo_v4_ready); setReferenceTurboReady(data.reference_turbo_ready); setGpuConflict(Boolean(data.gpu_conflict))
         setAudioLockReady(Boolean(data.audio_lock_ready))
+        if (typeof data.qwen_image_ready === 'boolean') setQwenImageReady(data.qwen_image_ready)
       }
     } catch {
       // The session retry below will recover after a brief bridge restart.
@@ -855,20 +890,22 @@ function App() {
         <button className="icon-button" onClick={() => { if (page === 'comfy') { setComfyLogCleared(false); void loadComfy(true) } else { void loadSession(); void load() } }} aria-label="רענון"><RefreshCw size={18} /></button>
       </div>
     </header>
-    <nav className="page-tabs" aria-label="Navigation"><button className={page === 'studio' ? 'active' : ''} onClick={() => setPage('studio')}><Clapperboard size={15} /> Studio</button><button className={page === 'production' ? 'active' : ''} onClick={() => setPage('production')}><Sparkles size={15} /> Production</button><button className={page === 'comfy' ? 'active' : ''} onClick={() => setPage('comfy')}><Terminal size={15} /> ComfyUI logs</button></nav>
+    <nav className="page-tabs" aria-label="Navigation"><button className={page === 'studio' ? 'active' : ''} onClick={() => setPage('studio')}><Clapperboard size={15} /> Studio</button><button className={page === 'production' ? 'active' : ''} onClick={() => setPage('production')}><Sparkles size={15} /> Production</button><button className={page === 'image_gen' ? 'active' : ''} onClick={() => setPage('image_gen')}><ImageIcon size={15} /> Image Gen</button><button className={page === 'comfy' ? 'active' : ''} onClick={() => setPage('comfy')}><Terminal size={15} /> ComfyUI logs</button></nav>
     {gpuConflict && <div className="gpu-conflict-note"><ShieldAlert size={16} /><div><span>Fortnite is running and may use the GPU. Generation can become slow or stall; close Fortnite before starting ComfyUI jobs.</span><button type="button" className="gpu-close-button" onClick={() => { void closeFortnite() }} disabled={gpuBusy}>{gpuBusy ? 'Closing…' : 'Close Fortnite'}</button></div></div>}
-    {page === 'comfy' ? <ComfyPage running={comfyRunning} busy={comfyBusy} lines={comfyLogs} error={comfyError} onClear={() => { setComfyLogCleared(true); setComfyLogs([]) }} onRefresh={() => { setComfyLogCleared(false); void loadComfy(true) }} /> : page === 'production' ? <ProductionStudio csrf={csrf} /> : <>
+    {page === 'comfy' ? <ComfyPage running={comfyRunning} busy={comfyBusy} lines={comfyLogs} error={comfyError} onClear={() => { setComfyLogCleared(true); setComfyLogs([]) }} onRefresh={() => { setComfyLogCleared(false); void loadComfy(true) }} /> : page === 'production' ? <ProductionStudio csrf={csrf} /> : page === 'image_gen' ? <ImageGenStudio csrf={csrf} qwenImageReady={qwenImageReady} onUseInStudio={handleUseInStudio} /> : <>
 
-    <section className="asset-library-panel">
+    <PerformancePanel onPreset={applyStudioPreset} selected={selectedPreset} compactReady={clipprojReady} enabled={mode === 'text' || mode === 'frames' || mode === 'opening' || mode === 'closing'} />
+    <details className="asset-library-disclosure"><summary><Folder size={16} /> הספרייה שלך <span>פרויקטים, תיקיות ותוצאות</span><ChevronDown size={16}/></summary><section className="asset-library-panel">
       <div className="asset-library-head"><div><span className="eyebrow"><Folder size={15}/> Asset library</span><h2>Projects and folders</h2><small dir="ltr">{library.root || 'state/projects'}</small></div><button type="button" onClick={() => { void createStudioProject() }}><FolderPlus size={16}/> New project</button></div>
       <div className="asset-library-toolbar"><label><span>Show assets</span><select value={libraryProject} onChange={event => { setLibraryProject(event.target.value); setLibraryFolder('all') }}><option value="all">All assets</option><option value="unassigned">Unassigned</option>{library.projects.map(project => <option key={project.id} value={project.id}>{project.name} ({project.asset_count})</option>)}</select></label>{!['all','unassigned'].includes(libraryProject) && <label><span>Folder</span><select value={libraryFolder} onChange={event => setLibraryFolder(event.target.value)}><option value="all">All folders</option><option value="root">Project root</option>{library.projects.find(project => project.id === libraryProject)?.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>}</div>
       {!['all','unassigned'].includes(libraryProject) && (() => { const project=library.projects.find(item=>item.id===libraryProject); return project ? <div className="asset-project-detail"><div className="asset-project-title"><div className="asset-project-label"><b>{project.name}</b><span>{project.asset_count} assets</span></div><div className="asset-project-actions"><button onClick={() => { void createStudioFolder(project.id) }}><FolderPlus size={14}/> Folder</button><button onClick={() => { void renameStudioProject(project) }}><Pencil size={13}/> Rename</button><button className="danger" onClick={() => { void deleteStudioProject(project) }}><Trash2 size={13}/></button></div></div><div className="asset-folder-list">{project.folders.map(folder => <div key={folder.id}><div className="asset-folder-name"><Folder size={14}/><span>{folder.name}</span></div><div className="asset-folder-actions"><button onClick={() => { void renameStudioFolder(project,folder) }}><Pencil size={12}/></button><button onClick={() => { void deleteStudioFolder(project,folder) }}><Trash2 size={12}/></button></div></div>)}{!project.folders.length && <small>No folders yet. Assets can still be stored in the project root.</small>}</div></div> : null })()}
     </section>
 
+    </details>
     <section className="composer">
       <div className="eyebrow"><Sparkles size={15} /> יצירה חדשה</div>
       <div className="generation-destination"><Folder size={16}/><label><span>Save new results in project</span><select value={destinationProject} onChange={event => { setDestinationProject(event.target.value); setDestinationFolder('') }}><option value="">Unassigned · ComfyUI output</option>{library.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>Folder</span><select value={destinationFolder} disabled={!destinationProject} onChange={event => setDestinationFolder(event.target.value)}><option value="">Project root</option>{library.projects.find(project => project.id === destinationProject)?.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>{destinationProject && <button type="button" onClick={() => { void createStudioFolder(destinationProject) }}><FolderPlus size={15}/> New folder</button>}</div>
-      <textarea value={prompt} onChange={e => setPrompt(e.target.value)} maxLength={batch ? 80000 : undefined}
+      <textarea aria-label="תיאור הסרטון" value={prompt} onChange={e => setPrompt(e.target.value)} maxLength={batch ? 80000 : undefined}
         placeholder={batch ? 'הדבק כמה פרומפטים. השאר שורה ריקה בין כל אחד…' : mode === 'lip_sync' ? 'אופציונלי: תאר את ההופעה, המצלמה וההבעה…' : 'תאר את הסרטון שאתה רוצה ליצור…'} />
       <div className="composer-meta"><span>{prompt.length.toLocaleString()} תווים</span><label className="batch-toggle"><input type="checkbox" checked={batch} disabled={mode === 'lip_sync'} onChange={e => { setBatch(e.target.checked); if (!e.target.checked) setConnected(false) }} /><span>כמה פרומפטים</span></label></div>
       {batch && <div className="batch-note">כל פסקה היא שוט אחד · {paragraphCount} שוטים</div>}
@@ -994,7 +1031,7 @@ function App() {
           <div className="setting-block resolution-block">
             <div className="setting-title"><span>רזולוציה</span><small>כפולות 32 שמתאימות ל־H3</small></div>
             <div className="aspect-grid">{aspectOptions.map(aspect => <button type="button" key={aspect} className={preferences.aspect === aspect ? 'active' : ''} onClick={() => setPreferences(current => ({ ...current, aspect }))}>{aspect}</button>)}</div>
-            <label className="numeric-control"><span>Megapixels</span><input dir="ltr" type="number" min="0.1" max="2" step="0.01" value={preferences.megapixels} onChange={event => setPreferences(current => ({ ...current, megapixels: Math.max(0.1, Math.min(2, Number(event.target.value) || 0.1)) }))} /><small>׳׳×׳¨׳•׳× 0.1–2.0 · H3 מעגל לכפולות 32</small></label>
+            <label className="numeric-control"><span>Megapixels</span><input dir="ltr" type="number" min="0.1" max="2" step="0.01" value={preferences.megapixels} onChange={event => setPreferences(current => ({ ...current, megapixels: Math.max(0.1, Math.min(2, Number(event.target.value) || 0.1)) }))} /><small>טווח 0.1–2.0 · H3 מעגל לכפולות 32</small></label>
             <div className="calculated-resolution">{calculatedResolution.id} · {(calculatedResolution.width * calculatedResolution.height / 1_000_000).toFixed(2)} MP בפועל</div>
           </div>
         </div>
@@ -1130,7 +1167,7 @@ function JobCard({ job, assignment, index, total, selectedOrder, onSelect, onMan
           <span>{elapsedSeconds !== undefined ? `עבר ${formatDuration(elapsedSeconds)}` : ''}{job.eta_seconds !== null && job.eta_seconds !== undefined ? ` · נשאר ~${formatDuration(job.eta_seconds)}` : ''}</span>
         </div>
       </div>}
-      {job.error && <div className="job-error">{job.error}</div>}
+      {job.error && <GenerationError error={job.error} />}
       <div className="job-actions">
         {job.status === 'queued' && <><button onClick={onUp} disabled={index === 0}><ArrowUp size={17} /></button><button onClick={onDown} disabled={index === (total || 0) - 1}><ArrowDown size={17} /></button></>}
         {job.video_url && <><a href={job.video_url} download><Download size={17} /> הורדה</a><button onClick={share}><Link2 size={17} /> שיתוף</button></>}
@@ -1168,7 +1205,7 @@ function SequenceCard({ sequence, assignment, selectedOrder, onSelect, onManage,
         <div className="progress determinate" role="progressbar" aria-label="התקדמות הרצף" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div>
         <div className="progress-meta"><span>{sequence.phase === 'assembling' ? 'מחבר את הקטעים' : sequence.current_item ? `שוט ${sequence.current_item}/${sequence.total_items}` : 'ממתין להתחלה'} · {percent}%</span>{sequence.eta_seconds !== null && sequence.eta_seconds !== undefined && <span>נשאר ~{formatDuration(sequence.eta_seconds)}</span>}</div>
       </div>}
-      {sequence.error && <div className="job-error">{sequence.error}</div>}
+      {sequence.error && <GenerationError error={sequence.error} />}
       <div className="job-actions">
         {sequence.video_url && <><a href={sequence.video_url} download><Download size={17} /> הורדה</a><button onClick={share}><Link2 size={17} /> שיתוף</button></>}
         {onSelect && <button className={`select-result ${selectedOrder ? 'active' : ''}`} onClick={onSelect}><Check size={16} /> {selectedOrder ? `נבחר ${selectedOrder}` : 'בחר לחיבור'}</button>}

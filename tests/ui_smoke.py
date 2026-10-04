@@ -14,7 +14,8 @@ with sync_playwright() as p:
 
     page = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
     page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-    page.goto(base, wait_until="networkidle")
+    page.goto(base, wait_until="domcontentloaded")
+    page.wait_for_timeout(1000)
 
     assert page.locator("h1").inner_text() == "H3 Studio"
     assert page.locator("html").get_attribute("dir") == "rtl"
@@ -29,7 +30,8 @@ with sync_playwright() as p:
     assert encoders.nth(0).get_attribute("aria-pressed") == "true"
     assert encoders.count() == 2
     assert page.locator(".steps-range").input_value() == "4"
-    assert page.locator(".resolution-grid button.active").inner_text().startswith("מאוזן")
+    assert page.locator(".calculated-resolution").inner_text().startswith("736x416")
+    assert engines.count() == 3
 
     turbo_profiles = page.locator(".turbo-profile-toggle button")
     assert turbo_profiles.count() == 2
@@ -44,14 +46,15 @@ with sync_playwright() as p:
     assert step_range.get_attribute("min") == "8"
     assert step_range.get_attribute("max") == "30"
 
-    page.locator(".resolution-grid button").nth(2).click()
-    assert "864×480" in page.locator(".resolution-grid button.active").inner_text()
+    megapixels = page.locator(".numeric-control input")
+    megapixels.fill("0.41")
+    assert "864x480" in page.locator(".calculated-resolution").inner_text()
 
     page.locator(".mode-card", has_text="רפרנס").click()
-    assert engines.nth(0).is_disabled()
+    assert not engines.nth(0).is_disabled()
     assert engines.nth(1).get_attribute("aria-pressed") == "true"
-    assert page.get_by_text("רפרנס עובד עם רגיל או Spectrum; Turbo לא מתאים למסלול הזה", exact=True).is_visible()
-    assert page.locator(".reference-grid .dropzone").count() == 2
+    assert page.get_by_text("Ref2VA Turbo משתמש ב־4 סטפים וב־LoRA ייעודית", exact=True).is_visible()
+    assert page.locator(".reference-grid .dropzone").count() == 3
     assert page.get_by_text("הוסף אודיו לרפרנס", exact=True).is_visible()
 
     page.locator(".mode-card", has_text="טקסט בלבד").click()
@@ -63,7 +66,7 @@ with sync_playwright() as p:
     engines.nth(0).click()
     page.locator(".turbo-profile-toggle button").nth(0).click()
     step_range.fill("12")
-    page.get_by_role("button", name="10 שנ׳").click()
+    page.locator(".duration-input input").fill("10")
     page.locator("textarea").fill("A quiet cinematic forest with soft rain and clear natural audio")
     page.get_by_role("button", name="צור וידאו").click()
     dialog = page.get_by_role("dialog")
@@ -77,7 +80,8 @@ with sync_playwright() as p:
 
     desktop = browser.new_page(viewport={"width": 720, "height": 900}, device_scale_factor=1)
     desktop.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-    desktop.goto(base, wait_until="networkidle")
+    desktop.goto(base, wait_until="domcontentloaded")
+    desktop.wait_for_timeout(1000)
     assert desktop.get_by_text("הגדרות יצירה", exact=True).is_visible()
     assert desktop.locator(".settings-grid").evaluate("element => getComputedStyle(element).gridTemplateColumns.split(' ').length === 2")
     assert desktop.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
