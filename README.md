@@ -167,6 +167,32 @@ Read `.agents/skills/h3-environment-bootstrap/SKILL.md` before setup and
 Read `.agents/skills/git-standards/SKILL.md` before Git work and
 `.agents/skills/release-process/SKILL.md` before releases.
 
+## Speed and Turbo profiles
+
+Two opt-in settings came out of a measured review on an RTX 4060 8GB with 32GB
+RAM. They are single-machine results, not guarantees for other hardware.
+
+- **Triton backend.** Set `comfy.enable_triton_backend` to `true` in
+  `config.local.json` to launch ComfyUI with `--enable-triton-backend`. The same
+  0.6MP, 56-frame, four-step render took 177s without it and 106-118s with it.
+- **Official Turbo profile.** `turbo_profile=official` uses the Comfy-Org
+  four-step 768p FL2V Turbo LoRA with Euler, the simple scheduler and video/audio
+  shift 6/3, at exactly four steps. Install the pinned file with
+  `scripts/install-official-turbo.ps1`. Against Turbo v4 on one 141-frame shot it
+  took 301s versus 332s and produced more motion. Across 46 shots of a full music
+  video at 1056x608 the median was 160s per shot, about 2.2s per frame.
+- **Lip-sync.** The Studio defaults lip-sync to Turbo v1 with Native AudioLock at
+  four steps. A 6.6s clip at 0.6MP took about 6 minutes, versus about 23 minutes
+  on the Standard 20-step route. The uploaded audio is kept unchanged. Mouth
+  accuracy was judged by eye, not measured.
+
+`app.allowed_hosts` in `config.local.json` adds extra host names, such as a LAN
+address, to the allowed list.
+
+The Studio UI is mobile-first: bottom navigation, Create / Queue / Library views,
+one-tap quality presets and a System page for ComfyUI power, hardware meters and
+logs.
+
 ## Proof boundaries
 
 CI proves source build and tests. A hash report proves a downloaded file. API
