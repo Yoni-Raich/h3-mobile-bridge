@@ -12,7 +12,7 @@ import httpx
 import websockets
 
 from .comfy_inputs import prepare_comfy_inputs
-from .config import (COMFY_CODE, COMFY_HOST, COMFY_PORT, COMFY_PYTHON,
+from .config import (COMFY_CODE, COMFY_HOST, COMFY_PORT, COMFY_PYTHON, ENABLE_TRITON_BACKEND,
                      COMFY_URL, INPUT, LOGS, MODELS, OUTPUT, TEMP, USER)
 
 
@@ -102,6 +102,8 @@ class ComfyClient:
             "--preview-method", "none",
             "--log-stdout",
         ]
+        if ENABLE_TRITON_BACKEND:
+            command.append("--enable-triton-backend")
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         child_env = os.environ.copy()
         # ComfyUI custom nodes may emit Unicode (including emoji) while

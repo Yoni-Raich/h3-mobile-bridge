@@ -27,9 +27,29 @@ class PortabilityTests(unittest.TestCase):
     def test_example_config_is_local_only(self):
         config = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
         self.assertEqual(config["runtime_root"], ".runtime")
-        self.assertEqual(config["app"], {"host": "127.0.0.1", "port": 8787})
-        self.assertEqual(config["comfy"], {"host": "127.0.0.1", "port": 8190})
+        self.assertEqual(config["app"]["host"], "127.0.0.1")
+        self.assertEqual(config["app"]["port"], 8787)
+        self.assertEqual(config["app"]["showcase_video"], "")
+        self.assertEqual(config["comfy"]["host"], "127.0.0.1")
+        self.assertEqual(config["comfy"]["port"], 8190)
+        self.assertFalse(config["comfy"]["enable_triton_backend"])
+        self.assertEqual(config["comfy"]["clipproj_projection"], "h3_qwen3vl_4b_tap24.safetensors")
         self.assertEqual(config["tailscale"], {"enabled": True, "scope": "tailnet"})
+
+    def test_triton_opt_in_requires_a_real_boolean(self):
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(ROOT)
+        code = (
+            "import unittest.mock as m; "
+            "p=m.patch('pathlib.Path.exists', return_value=True); p.start(); "
+            "r=m.patch('pathlib.Path.read_text', return_value="
+            "'{\"comfy\":{\"enable_triton_backend\":\"false\"}}'); r.start(); "
+            "import backend.config"
+        )
+        result = subprocess.run([os.environ.get("PYTHON", "python"), "-c", code],
+                                cwd=ROOT, env=environment, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be a JSON boolean", result.stderr)
 
     def test_missing_local_config_uses_safe_defaults(self):
         with tempfile.TemporaryDirectory(prefix="h3-config-test-") as directory:

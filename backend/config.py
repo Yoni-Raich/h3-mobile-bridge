@@ -84,6 +84,9 @@ APP_PORT = _port(os.environ.get("H3_APP_PORT", app_config.get("port")), 8787, "a
 COMFY_HOST = _local_host(os.environ.get("H3_COMFY_HOST", comfy_config.get("host", "127.0.0.1")), "comfy.host")
 COMFY_PORT = _port(os.environ.get("H3_COMFY_PORT", comfy_config.get("port")), 8190, "comfy.port")
 COMFY_URL = f"http://{COMFY_HOST}:{COMFY_PORT}"
+ENABLE_TRITON_BACKEND = comfy_config.get("enable_triton_backend", False)
+if not isinstance(ENABLE_TRITON_BACKEND, bool):
+    raise RuntimeError("comfy.enable_triton_backend must be a JSON boolean")
 
 STATE = ROOT / "state"
 LOGS = STATE / "logs"
@@ -136,6 +139,12 @@ TAILSCALE_ENABLED = bool(tailscale_config.get("enabled", True))
 TAILSCALE_SCOPE = str(tailscale_config.get("scope", "tailnet"))
 TAILSCALE_HOSTNAME = str(tailscale_config.get("hostname") or "").strip()
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+extra_hosts = app_config.get("allowed_hosts", [])
+if not isinstance(extra_hosts, list) or not all(isinstance(item, str) and item.strip() for item in extra_hosts):
+    raise RuntimeError("app.allowed_hosts must be a list of host names")
+for extra_host in extra_hosts:
+    if extra_host.strip() not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(extra_host.strip())
 if TAILSCALE_HOSTNAME and TAILSCALE_HOSTNAME not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(TAILSCALE_HOSTNAME)
 
